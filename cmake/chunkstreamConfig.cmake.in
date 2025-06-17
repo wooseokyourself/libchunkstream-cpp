@@ -1,0 +1,35 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# Find required dependencies
+if(WIN32)
+    find_dependency(asio CONFIG)
+else()
+    find_dependency(asio)
+endif()
+
+# Include the targets
+include("${CMAKE_CURRENT_LIST_DIR}/chunkstreamTargets.cmake")
+
+# Create namespace aliases for targets
+if(TARGET chunkstream_server AND NOT TARGET chunkstream::server)
+    add_library(chunkstream::server ALIAS chunkstream_server)
+endif()
+
+if(TARGET chunkstream_client AND NOT TARGET chunkstream::client)
+    add_library(chunkstream::client ALIAS chunkstream_client)
+endif()
+
+# Create a convenience target that includes both server and client
+if(NOT TARGET chunkstream::chunkstream)
+    add_library(chunkstream::chunkstream INTERFACE IMPORTED)
+    if(TARGET chunkstream_server)
+        target_link_libraries(chunkstream::chunkstream INTERFACE chunkstream_server)
+    endif()
+    if(TARGET chunkstream_client)
+        target_link_libraries(chunkstream::chunkstream INTERFACE chunkstream_client)
+    endif()
+endif()
+
+check_required_components(chunkstream)
