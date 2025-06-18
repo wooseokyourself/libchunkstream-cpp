@@ -1,5 +1,5 @@
-#ifndef CHUNKSTREAM_THREAD_POOL_H
-#define CHUNKSTREAM_THREAD_POOL_H
+#ifndef CHUNKSTREAM_CORE_THREAD_POOL_H_
+#define CHUNKSTREAM_CORE_THREAD_POOL_H_
 
 #include <vector>
 #include <queue>

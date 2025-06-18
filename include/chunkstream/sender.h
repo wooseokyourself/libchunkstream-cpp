@@ -7,59 +7,11 @@
 
 namespace chunkstream {
 
-template <class T> const T& min (const T& a, const T& b) {
-  return !(b<a)?a:b;
-}
-
 class Sender {
 public:
-  Sender(const std::string& ip, const int port, const int mtu = 1500, const size_t buffer_size = 10, const size_t max_data_size = 0)
-  : socket_(io_context_, asio::ip::udp::v4()), 
-    ENDPOINT(asio::ip::address::from_string(ip), port), 
-    MTU(mtu), 
-    PAYLOAD(MTU - 20 - 8 - CHUNKHEADER_SIZE) // mtu - IP header - UDP header - Chunk header
-{
-  if (max_data_size > 0) {
-    const int total_chunks = (max_data_size + PAYLOAD - 1) / PAYLOAD;
-    buffer_.resize(
-      buffer_size, 
-      std::vector< std::vector<uint8_t> >(total_chunks, std::vector<uint8_t>(CHUNKHEADER_SIZE + PAYLOAD))
-    );
-  }
-}
+  Sender(const std::string& ip, const int port, const int mtu = 1500, const size_t buffer_size = 10, const size_t max_data_size = 0);
 
-  void Send(const uint8_t* data, const size_t size) {
-    ChunkHeader header;
-
-    header.buffer_index = buffer_index_++;
-    if (buffer_index_ >= buffer_.size()) buffer_index_ = 0;
-
-    header.total_size = static_cast<uint32_t>(size);
-    header.total_chunks = static_cast<uint16_t>((header.total_size + PAYLOAD - 1) / PAYLOAD);
-    
-    if (buffer_[header.buffer_index].size() < header.total_chunks) {
-      buffer_[header.buffer_index].resize(
-        header.total_chunks, std::vector<uint8_t>(CHUNKHEADER_SIZE + PAYLOAD)
-      );
-    }
-
-    for (int i = 0; i < header.total_chunks; i++) {
-      header.chunk_index = static_cast<uint16_t>(i);
-
-      const int remaining = header.total_size - (i * PAYLOAD);
-      header.chunk_size = static_cast<uint32_t>(min(PAYLOAD, remaining));
-
-      uint8_t* packet = buffer_[header.buffer_index][header.chunk_index].data();
-      memcpy(packet, &header, CHUNKHEADER_SIZE);
-      memcpy(packet + CHUNKHEADER_SIZE, data + (i * PAYLOAD), header.chunk_size);
-      socket_.send_to(
-        asio::buffer(
-          packet, static_cast<size_t>(CHUNKHEADER_SIZE + header.chunk_size)
-        ), 
-        ENDPOINT
-      );
-    }
-  }
+  void Send(const uint8_t* data, const size_t size);
 
 private: 
   asio::ip::udp::socket socket_;
@@ -68,11 +20,13 @@ private:
   const int MTU;
   const int PAYLOAD;
 
-  std::atomic_int buffer_index_;
-
-  // <`ChunkHeader::message_id`, [`chunk_index`].size() == `MTU-28`>
+  // Circular buffer for data.
+  // A data(i) -> buffer_[i]
+  // Chunks(j) of a data(i) -> buffer_[i][j]
+  // <`buffer_index_`, [`chunk_index`].size() == `MTU-28`>
   std::vector< std::vector< std::vector<uint8_t> > > buffer_; 
-
+  std::atomic_int buffer_index_;
+  std::atomic<uint32_t> id_;
 };
 
 }

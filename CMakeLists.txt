@@ -33,31 +33,32 @@ endif()
 message(STATUS "Asio found: ${Asio_FOUND}")
 
 # Server library source files
-set(SERVER_SOURCES
+set(SENDER_SOURCES
     src/thread_pool.cpp
-    src/server.cpp
+    src/sender.cpp
     ${COMMON_SOURCES}
 )
 
 # Client library source files
-set(CLIENT_SOURCES
-    src/client.cpp
+set(RECEIVER_SOURCES
+    src/receiver.cpp
     ${COMMON_SOURCES}
 )
 
 # Header files
 set(COMMON_HEADERS
-    include/chunkstream/core.h
-    include/chunkstream/property.pb.h
+    include/chunkstream/chunk_header.h
 )
 
-set(SERVER_HEADERS
-    include/chunkstream/server.h
+set(SENDER_HEADERS
+    include/chunkstream/sender.h
     ${COMMON_HEADERS}
 )
 
-set(CLIENT_HEADERS
-    include/chunkstream/client.h
+set(RECEIVER_HEADERS
+    include/chunkstream/core/ordered_hash_container.h
+    include/chunkstream/core/thread_pool.h
+    include/chunkstream/receiver.h
     ${COMMON_HEADERS}
 )
 
@@ -72,8 +73,8 @@ else()
 endif()
 
 # Create library targets with the selected type (STATIC or SHARED based on BUILD_SHARED_LIBS)
-add_library(chunkstream_server ${SERVER_SOURCES} ${SERVER_HEADERS})
-add_library(chunkstream_client ${CLIENT_SOURCES} ${CLIENT_HEADERS})
+add_library(chunkstream_server ${SENDER_SOURCES} ${SENDER_HEADERS})
+add_library(chunkstream_client ${RECEIVER_SOURCES} ${RECEIVER_HEADERS})
 
 # Set library properties
 set_target_properties(chunkstream_server PROPERTIES

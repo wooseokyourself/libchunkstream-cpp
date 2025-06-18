@@ -1,9 +1,9 @@
-#include "thread_pool.h"
+#include "chunkstream/core/thread_pool.h"
 
 namespace chunkstream {
 
 ThreadPool::ThreadPool(size_t threads) : stop_(false) {
-  for(size_t i = 0; i < threads; ++i) {
+  for (size_t i = 0; i < threads; ++i) {
     workers_.emplace_back([this] {
       while(true) {
         std::function<void()> task;
