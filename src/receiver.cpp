@@ -6,8 +6,8 @@ Receiver::ReceivingFrame::ReceivingFrame(
   std::shared_ptr<asio::io_context> io_context, 
   const size_t total_chunks, 
   uint8_t* memory_pool,
-  const size_t memory_pool_block_size,  
-  std::function<void(const uint32_t frame_id, const uint16_t chunk_index)> request_resend_func, 
+  const size_t memory_pool_block_size, 
+  std::function<void(const ChunkHeader header)> request_resend_func,
   std::function<void(uint8_t* data, const size_t size)> send_assembled_callback)
 : io_context_(io_context), 
   request_resend_func_(request_resend_func), 
@@ -21,6 +21,7 @@ Receiver::ReceivingFrame::ReceivingFrame(
   BLOCK_SIZE(memory_pool_block_size) {
 
   chunk_bitmap_.resize(total_chunks, false);
+  chunk_headers_.resize(total_chunks);
   data_ = memory_pool;
 }
 
@@ -40,6 +41,7 @@ void Receiver::ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data
     header.chunk_size
   );
   chunk_bitmap_[header.chunk_index] = true;
+  chunk_headers_[header.chunk_index] = header;
 
   // Check all chunks are added
   bool all_chunk_added = true;
@@ -87,7 +89,7 @@ void Receiver::ReceivingFrame::__PeriodicResend(const uint32_t id) {
   
   for (int i = 0; i < chunk_bitmap_.size(); i++) {
     if (!chunk_bitmap_[i]) {
-      request_resend_func_(id, i);
+      request_resend_func_(chunk_headers_[i]);
     }
   }
   
@@ -100,14 +102,18 @@ void Receiver::ReceivingFrame::__PeriodicResend(const uint32_t id) {
 Receiver::Receiver(const int port, 
                    std::function<void(const std::vector<uint8_t>&)> grab, 
                    const size_t buffer_size, 
-                   const size_t max_data_size) 
+                   const size_t max_data_size, 
+                   std::string sender_ip, 
+                   const int sender_port) 
 : grabbed_(grab),
   socket_(*io_context_, asio::ip::udp::endpoint(asio::ip::udp::v4(), port)), 
   BUFFER_SIZE(buffer_size), 
-  BLOCK_SIZE(max_data_size)
+  BLOCK_SIZE(max_data_size), 
+  SENDER_ENDPOINT(asio::ip::address::from_string(sender_ip), sender_port)
 {
   threads_ = std::make_shared<ThreadPool>(std::thread::hardware_concurrency());
   data_memory_pool_.resize(BLOCK_SIZE * BUFFER_SIZE);
+  resend_request_memory_pool_.resize(CHUNKHEADER_SIZE);
 }
 
 Receiver::~Receiver() {
@@ -169,7 +175,7 @@ void Receiver::__HandlePacket(const asio::error_code& error, std::size_t bytes_t
             header.total_chunks, 
             data_memory_pool_.data() + (BLOCK_SIZE * data_memory_pool_index_), 
             BLOCK_SIZE, 
-            std::bind(&Receiver::__RequestResend, this, std::placeholders::_1, std::placeholders::_2), 
+            std::bind(&Receiver::__RequestResend, this, std::placeholders::_1), 
             std::bind(&Receiver::__FrameGrabbed, this, std::placeholders::_1, std::placeholders::_2)
           )
         );
@@ -201,8 +207,12 @@ void Receiver::__HandlePacket(const asio::error_code& error, std::size_t bytes_t
   }
 }
 
-void Receiver::__RequestResend(const uint32_t frame_id, const uint16_t chunk_index) {
-
+void Receiver::__RequestResend(const ChunkHeader header) {
+  std::memcpy(resend_request_memory_pool_.data(), &header, CHUNKHEADER_SIZE);
+  socket_.async_send_to(
+    asio::buffer(resend_request_memory_pool_.data(), CHUNKHEADER_SIZE), 
+    SENDER_ENDPOINT
+  );
 }
 
 void Receiver::__FrameGrabbed(uint8_t* data, const size_t size) {
