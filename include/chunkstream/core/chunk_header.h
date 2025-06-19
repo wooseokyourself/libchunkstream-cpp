@@ -16,6 +16,14 @@ struct ChunkHeader {
 
 const size_t CHUNKHEADER_SIZE = sizeof(ChunkHeader);
 
+void HostToNetwork(ChunkHeader*);
+
+void NetworkToHost(ChunkHeader*);
+
+ChunkHeader HostToNetwork(const ChunkHeader&);
+
+ChunkHeader NetworkToHost(const ChunkHeader&);
+
 }
 
 #endif

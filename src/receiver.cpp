@@ -101,6 +101,7 @@ void Receiver::ReceivingFrame::__PeriodicResend(const uint32_t id) {
 
 Receiver::Receiver(const int port, 
                    std::function<void(const std::vector<uint8_t>&)> grab, 
+                   const int mtu, 
                    const size_t buffer_size, 
                    const size_t max_data_size, 
                    std::string sender_ip, 
@@ -108,12 +109,20 @@ Receiver::Receiver(const int port,
 : grabbed_(grab),
   socket_(*io_context_, asio::ip::udp::endpoint(asio::ip::udp::v4(), port)), 
   BUFFER_SIZE(buffer_size), 
-  BLOCK_SIZE(max_data_size), 
+  DATA_POOL_BLOCK_SIZE(max_data_size), 
+  RAW_POOL_BLOCK_SIZE(mtu - 20 - 8), // = CHUNKHEADER_SIZE + PAYLOAD
   SENDER_ENDPOINT(asio::ip::address::from_string(sender_ip), sender_port)
 {
   threads_ = std::make_shared<ThreadPool>(std::thread::hardware_concurrency());
-  data_memory_pool_.resize(BLOCK_SIZE * BUFFER_SIZE);
+  data_pool_.resize(DATA_POOL_BLOCK_SIZE * BUFFER_SIZE);
+  
   resend_request_memory_pool_.resize(CHUNKHEADER_SIZE);
+
+  size_t payload = mtu - 20 - 8 - CHUNKHEADER_SIZE;
+  const int expected_chunks = (max_data_size + payload - 1) / payload;
+  RAW_BUFFER_SIZE = expected_chunks * BUFFER_SIZE;
+
+  raw_pool_.resize(RAW_POOL_BLOCK_SIZE * RAW_BUFFER_SIZE);
 }
 
 Receiver::~Receiver() {
@@ -142,73 +151,74 @@ size_t Receiver::GetDropCount() {
 }
 
 void Receiver::__Receive() {
+  // Indexing memory pool
+  const int raw_buf_idx = raw_pool_index_.fetch_add(1) % RAW_BUFFER_SIZE;
+
+  uint8_t* recv_buf = raw_pool_.data() + (raw_buf_idx * RAW_POOL_BLOCK_SIZE);
+
   socket_.async_receive_from(
-    asio::buffer(recv_buffer_), remote_endpoint_,
-    std::bind(&Receiver::__HandlePacket, this,
-      std::placeholders::_1,
-      std::placeholders::_2
-    )
+    asio::buffer(recv_buf, RAW_POOL_BLOCK_SIZE), 
+    remote_endpoint_,
+    [this, raw_buf_idx](
+      const asio::error_code& error, std::size_t bytes_transferred
+    ) {
+      if ((!error || error == asio::error::message_size) && bytes_transferred >= CHUNKHEADER_SIZE) {
+        threads_->Enqueue([this, raw_buf_idx]() {
+          __HandlePacket(raw_buf_idx);
+        });
+      }
+    }
   );
+  if (running_) __Receive();
 }
 
-void Receiver::__HandlePacket(const asio::error_code& error, std::size_t bytes_transferred) {
-  if ((!error || error == asio::error::message_size) && bytes_transferred >= CHUNKHEADER_SIZE)
-  {
-    ChunkHeader header;
-    std::memcpy(&header, recv_buffer_.data(), CHUNKHEADER_SIZE);
+void Receiver::__HandlePacket(const int raw_pool_index) {
+  ChunkHeader header;
 
-    header.id = ntohl(header.id);
-    header.total_size = ntohl(header.total_size);
-    header.total_chunks = ntohs(header.total_chunks);
-    header.chunk_index = ntohs(header.chunk_index);
-    header.chunk_size = ntohl(header.chunk_size);
-    header.transmission_type = ntohs(header.transmission_type);
+  uint8_t* recv_buf = raw_pool_.data() + (raw_pool_index * RAW_POOL_BLOCK_SIZE);
+  
+  std::memcpy(&header, recv_buf, CHUNKHEADER_SIZE);
+  
+  NetworkToHost(&header);
 
-    threads_->Enqueue([this, header]() {
-      if (buffer_.empty()
-          || (buffer_.front().first < header.id && !buffer_.find(header.id))) {
-        // Push new frame
-        buffer_.push_back(
-          header.id, 
-          ReceivingFrame(
-            io_context_, 
-            header.total_chunks, 
-            data_memory_pool_.data() + (BLOCK_SIZE * data_memory_pool_index_), 
-            BLOCK_SIZE, 
-            std::bind(&Receiver::__RequestResend, this, std::placeholders::_1), 
-            std::bind(&Receiver::__FrameGrabbed, this, std::placeholders::_1, std::placeholders::_2)
-          )
-        );
+  if (assembling_queue_.empty()
+      || (assembling_queue_.front().first < header.id && !assembling_queue_.find(header.id))) {
+    // Push new frame
+    const int data_idx = data_pool_index_.fetch_add(1) % BUFFER_SIZE;
+    assembling_queue_.push_back(
+      header.id, 
+      ReceivingFrame(
+        io_context_, 
+        header.total_chunks, 
+        data_pool_.data() + (data_idx * DATA_POOL_BLOCK_SIZE), 
+        DATA_POOL_BLOCK_SIZE, 
+        std::bind(&Receiver::__RequestResend, this, std::placeholders::_1), 
+        std::bind(&Receiver::__FrameGrabbed, this, std::placeholders::_1, std::placeholders::_2)
+      )
+    );
 
-        // Indexing memory pool
-        data_memory_pool_index_++;
-        if (data_memory_pool_index_ >= BUFFER_SIZE) data_memory_pool_index_ = 0;
-
-        // Buffering
-        while (buffer_.size() >= BUFFER_SIZE) {
-          // const uint32_t& drop_frame_id = buffer_.front().first;
-          // const ReceivingFrame& drop_frame = buffer_.front().second;
-          // 여기서 drop_frame 에 대한 어떤 조취를 취해야 하지 않을까?
-          buffer_.pop_front();
-        }
-      } else {
-        ReceivingFrame* frame = buffer_.find(header.id);
-        if (frame && !frame->IsTimeout() && !frame->IsChunkAdded(header.chunk_index)) {
-          // Push chunk to the frame
-          frame->AddChunk(header, recv_buffer_.data() + CHUNKHEADER_SIZE);
-        } else {
-          // drop packet
-          dropped_count_++;
-        }
-      }
-    });
-
-    if (running_) __Receive();
+    // Buffering
+    while (assembling_queue_.size() >= BUFFER_SIZE) {
+      // const uint32_t& drop_frame_id = buffer_.front().first;
+      // const ReceivingFrame& drop_frame = buffer_.front().second;
+      // 여기서 drop_frame 에 대한 어떤 조취를 취해야 하지 않을까?
+      assembling_queue_.pop_front();
+    }
+  } else {
+    ReceivingFrame* frame = assembling_queue_.find(header.id);
+    if (frame && !frame->IsTimeout() && !frame->IsChunkAdded(header.chunk_index)) {
+      // Push chunk to the frame
+      frame->AddChunk(header, recv_buf + CHUNKHEADER_SIZE);
+    } else {
+      // drop packet
+      dropped_count_++;
+    }
   }
 }
 
 void Receiver::__RequestResend(const ChunkHeader header) {
-  std::memcpy(resend_request_memory_pool_.data(), &header, CHUNKHEADER_SIZE);
+  const ChunkHeader n_header = HostToNetwork(header);
+  std::memcpy(resend_request_memory_pool_.data(), &n_header, CHUNKHEADER_SIZE);
   socket_.async_send_to(
     asio::buffer(resend_request_memory_pool_.data(), CHUNKHEADER_SIZE), 
     SENDER_ENDPOINT

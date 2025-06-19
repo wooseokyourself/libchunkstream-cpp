@@ -54,6 +54,7 @@ private:
 public:
   Receiver(const int port, 
            std::function<void(const std::vector<uint8_t>&)> grab,
+           const int mtu = 1500, 
            const size_t buffer_size = 10, 
            const size_t max_data_size = 0, 
            std::string sender_ip = "localhost", 
@@ -68,7 +69,7 @@ public:
 
 private: 
   void __Receive();
-  void __HandlePacket(const asio::error_code& error, std::size_t bytes_transferred);
+  void __HandlePacket(const int raw_pool_index);
   void __RequestResend(const ChunkHeader header);
   void __FrameGrabbed(uint8_t* data, const size_t size);
 
@@ -79,16 +80,24 @@ private:
   asio::ip::udp::socket socket_;
   asio::ip::udp::endpoint remote_endpoint_;
   std::shared_ptr<asio::io_context> io_context_ = std::make_shared<asio::io_context>();
-  std::array<uint8_t, 65553> recv_buffer_;
 
-  // [ <-- max_data_size * buffer_size --> ]
-  std::vector<uint8_t> data_memory_pool_;
-  int data_memory_pool_index_;
-  const size_t BLOCK_SIZE;
+  // [ <-- BLOCK_SIZE * BUFFER_SIZE --> ]
+  // block: one data (assembled packets)
+  std::vector<uint8_t> data_pool_;
+  const size_t DATA_POOL_BLOCK_SIZE; // Expected pure data size
+  std::atomic_int data_pool_index_;
+
+  // [ <-- PACKET_SIZE * EXPECTED_CHUNK_COUNT * BUFFER_SIZE --> ]
+  // block: one packet
+  std::vector<uint8_t> raw_pool_;
+  const size_t RAW_POOL_BLOCK_SIZE;
+  std::atomic_int raw_pool_index_;
+  size_t RAW_BUFFER_SIZE; // EXPECTED_CHUNK_COUNT * BUFFER_SIZE
+
 
   std::vector<uint8_t> resend_request_memory_pool_;
 
-  OrderedHashContainer<uint32_t, ReceivingFrame> buffer_;
+  OrderedHashContainer<uint32_t, ReceivingFrame> assembling_queue_;
   const size_t BUFFER_SIZE;
 
   std::shared_ptr<ThreadPool> threads_;

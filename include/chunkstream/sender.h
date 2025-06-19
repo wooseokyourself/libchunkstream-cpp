@@ -10,6 +10,8 @@ namespace chunkstream {
 
 struct SendingFrame {
   uint32_t id;
+  std::mutex ref_count_lock;
+  uint16_t ref_count = 0;
   std::vector< std::vector<uint8_t> > chunks;
 };
 
@@ -27,8 +29,7 @@ public:
 
 private:
   void __Receive();
-  void __HandlePacket(const asio::error_code& error, std::size_t bytes_transferred);
-  void __HandleResend(const uint32_t frame_id, const uint16_t chunk_index);
+  void __HandlePacket(ChunkHeader header);
 
 private: 
   std::atomic_bool running_ = false;
@@ -41,9 +42,6 @@ private:
   std::array<uint8_t, 65553> recv_buffer_;
 
   // Circular buffer for data.
-  // A data(i) -> buffer_[i]
-  // Chunks(j) of a data(i) -> buffer_[i][j]
-  // <`buffer_index_`, [`chunk_index`].size() == `MTU-28`>
   std::vector<SendingFrame> buffer_; 
   std::atomic_int buffer_index_;
   std::atomic<uint32_t> id_;
