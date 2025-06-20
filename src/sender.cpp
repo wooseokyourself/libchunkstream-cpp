@@ -1,4 +1,4 @@
-#include "sender.h"
+#include "chunkstream/sender.h"
 
 namespace chunkstream {
 
@@ -19,8 +19,9 @@ Sender::Sender(const std::string& ip, const int port,
     const int total_chunks = (max_data_size + PAYLOAD - 1) / PAYLOAD;
     buffer_.resize(buffer_size);
     for (int i = 0; i < buffer_.size(); i++) {
-      buffer_[i].id = -1;
-      buffer_[i].chunks.resize(total_chunks, std::vector<uint8_t>(CHUNKHEADER_SIZE + PAYLOAD));
+      buffer_[i] = std::make_unique<SendingFrame>();
+      buffer_[i]->id = -1;
+      buffer_[i]->chunks.resize(total_chunks, std::vector<uint8_t>(CHUNKHEADER_SIZE + PAYLOAD));
     }
   }
 }
@@ -43,11 +44,11 @@ void Sender::Send(const uint8_t* data, const size_t size) {
 
     int idx = buffer_index_.fetch_add(1) % buffer_.size();
     
-    std::lock_guard<std::mutex> lock(buffer_[idx].ref_count_lock);
-    if (buffer_[idx].ref_count == 0) {
+    std::lock_guard<std::mutex> lock(buffer_[idx]->ref_count_lock);
+    if (buffer_[idx]->ref_count == 0) {
+      frame = buffer_[idx].get();
       frame->id = header.id;
-      frame = &buffer_[idx];
-      frame->ref_count = header.total_chunks;  // 미리 설정
+      frame->ref_count = header.total_chunks;
     }
   }
   
@@ -74,7 +75,7 @@ void Sender::Send(const uint8_t* data, const size_t size) {
           packet, static_cast<size_t>(CHUNKHEADER_SIZE + header.chunk_size)
         ), 
         ENDPOINT, 
-        [this, frame]() { 
+        [this, frame](const asio::error_code& error, std::size_t bytes_transferred) { 
           std::lock_guard<std::mutex> lock(frame->ref_count_lock);
           frame->ref_count--; 
         }
@@ -98,7 +99,7 @@ void Sender::Stop() {
 void Sender::__Receive() {
   socket_.async_receive_from(
     asio::buffer(recv_buffer_), remote_endpoint_,
-    [this](asio::error_code error, std::size_t bytes_transferred) {
+    [this](const asio::error_code& error, std::size_t bytes_transferred) {
       if ((!error || error == asio::error::message_size) 
           && bytes_transferred >= CHUNKHEADER_SIZE) {
         ChunkHeader header;
@@ -116,11 +117,11 @@ void Sender::__Receive() {
 void Sender::__HandlePacket(ChunkHeader header) {
   SendingFrame* frame = nullptr;
   // TO DO: Optimize finding `req.id` frame; current is O(n)
-
+  // `buffer_` requires circular indexing so cannot be `unordered_map`.
   for (int i = 0; i < buffer_.size(); i++) {
-    std::lock_guard<std::mutex> lock(buffer_[i].ref_count_lock);
-    if (buffer_[i].id == header.id && buffer_[i].ref_count > 0) {
-      frame = &buffer_[i];
+    std::lock_guard<std::mutex> lock(buffer_[i]->ref_count_lock);
+    if (buffer_[i]->id == header.id && buffer_[i]->ref_count > 0) {
+      frame = buffer_[i].get();
       frame->ref_count++;
       break;
     }
@@ -141,7 +142,7 @@ void Sender::__HandlePacket(ChunkHeader header) {
       frame->chunks[header.chunk_index].data(), CHUNKHEADER_SIZE + header.chunk_size
     ), 
     ENDPOINT, 
-    [this, frame]() { 
+    [this, frame](const asio::error_code& error, std::size_t bytes_transferred) { 
       std::lock_guard<std::mutex> lock(frame->ref_count_lock);
       frame->ref_count--; 
     }

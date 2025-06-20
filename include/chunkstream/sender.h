@@ -42,7 +42,7 @@ private:
   std::array<uint8_t, 65553> recv_buffer_;
 
   // Circular buffer for data.
-  std::vector<SendingFrame> buffer_; 
+  std::vector< std::unique_ptr<SendingFrame> > buffer_; 
   std::atomic_int buffer_index_;
   std::atomic<uint32_t> id_;
   

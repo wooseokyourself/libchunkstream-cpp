@@ -103,6 +103,7 @@
     "*.ipp": "cpp",
     "any": "cpp",
     "source_location": "cpp",
-    "numbers": "cpp"
+    "numbers": "cpp",
+    "stack": "cpp"
   }
 }

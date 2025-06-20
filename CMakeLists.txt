@@ -32,34 +32,45 @@ endif()
 # Output package information
 message(STATUS "Asio found: ${Asio_FOUND}")
 
-# Server library source files
-set(SENDER_SOURCES
-    src/thread_pool.cpp
-    src/sender.cpp
-    ${COMMON_SOURCES}
+# Core source files
+set(CORE_SOURCES
+    src/core/chunk_header.cpp
+    src/core/thread_pool.cpp
 )
 
-# Client library source files
+# Receiver source files
 set(RECEIVER_SOURCES
+    src/receiver/receiving_frame.cpp
+    src/receiver/memory_pool.cpp
     src/receiver.cpp
-    ${COMMON_SOURCES}
+    ${CORE_SOURCES}
 )
 
-# Header files
-set(COMMON_HEADERS
-    include/chunkstream/chunk_header.h
+# Sender source files
+set(SENDER_SOURCES
+    src/sender.cpp
+    ${CORE_SOURCES}
 )
 
-set(SENDER_HEADERS
-    include/chunkstream/sender.h
-    ${COMMON_HEADERS}
-)
-
-set(RECEIVER_HEADERS
+# Core header files
+set(CORE_HEADERS
+    include/chunkstream/core/chunk_header.h
     include/chunkstream/core/ordered_hash_container.h
     include/chunkstream/core/thread_pool.h
+)
+
+# Receiver header files
+set(RECEIVER_HEADERS
     include/chunkstream/receiver.h
-    ${COMMON_HEADERS}
+    include/chunkstream/receiver/memory_pool.h
+    include/chunkstream/receiver/receiving_frame.h
+    ${CORE_HEADERS}
+)
+
+# Sender header files
+set(SENDER_HEADERS
+    include/chunkstream/sender.h
+    ${CORE_HEADERS}
 )
 
 # Build Mode - Default is static library, can be changed via option
@@ -73,11 +84,11 @@ else()
 endif()
 
 # Create library targets with the selected type (STATIC or SHARED based on BUILD_SHARED_LIBS)
-add_library(chunkstream_server ${SENDER_SOURCES} ${SENDER_HEADERS})
-add_library(chunkstream_client ${RECEIVER_SOURCES} ${RECEIVER_HEADERS})
+add_library(chunkstream_sender ${SENDER_SOURCES} ${SENDER_HEADERS})
+add_library(chunkstream_receiver ${RECEIVER_SOURCES} ${RECEIVER_HEADERS})
 
 # Set library properties
-set_target_properties(chunkstream_server PROPERTIES
+set_target_properties(chunkstream_sender PROPERTIES
     DEBUG_POSTFIX "d"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
@@ -85,7 +96,7 @@ set_target_properties(chunkstream_server PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
-set_target_properties(chunkstream_client PROPERTIES
+set_target_properties(chunkstream_receiver PROPERTIES
     DEBUG_POSTFIX "d"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
@@ -95,69 +106,68 @@ set_target_properties(chunkstream_client PROPERTIES
 
 # Configure export symbols for shared libraries on Windows
 if(BUILD_SHARED_LIBS AND WIN32)
-    set_target_properties(chunkstream_server PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
-    set_target_properties(chunkstream_client PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    set_target_properties(chunkstream_sender PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    set_target_properties(chunkstream_receiver PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 endif()
 
-# Set include directories and link dependencies for server
-target_include_directories(chunkstream_server
+# Set include directories for sender
+target_include_directories(chunkstream_sender
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/chunkstream
-        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-# Set include directories and link dependencies for client
-target_include_directories(chunkstream_client
+# Set include directories for receiver
+target_include_directories(chunkstream_receiver
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/chunkstream
-        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 # Platform-specific include directories and link libraries
 if(WIN32)
-    target_link_libraries(chunkstream_server PRIVATE asio::asio)
-    target_link_libraries(chunkstream_client PRIVATE asio::asio)
+    target_link_libraries(chunkstream_sender PRIVATE asio::asio)
+    target_link_libraries(chunkstream_receiver PRIVATE asio::asio)
 else()
-    target_include_directories(chunkstream_server PRIVATE ${Asio_INCLUDE_DIRS})
-    target_include_directories(chunkstream_client PRIVATE ${Asio_INCLUDE_DIRS})
-    target_link_libraries(chunkstream_server PRIVATE ${Asio_LIBRARIES})
-    target_link_libraries(chunkstream_client PRIVATE ${Asio_LIBRARIES})
+    target_include_directories(chunkstream_sender PRIVATE ${Asio_INCLUDE_DIRS})
+    target_include_directories(chunkstream_receiver PRIVATE ${Asio_INCLUDE_DIRS})
+    target_link_libraries(chunkstream_sender PRIVATE ${Asio_LIBRARIES})
+    target_link_libraries(chunkstream_receiver PRIVATE ${Asio_LIBRARIES})
+endif()
+
+# Link required system libraries
+if(NOT WIN32)
+    target_link_libraries(chunkstream_sender PRIVATE pthread)
+    target_link_libraries(chunkstream_receiver PRIVATE pthread)
 endif()
 
 # Configure static runtime linking for MSVC
 if(MSVC AND NOT BUILD_SHARED_LIBS)
     # Static runtime linking for static libraries (/MT or /MTd)
-    set_property(TARGET chunkstream_server PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    set_property(TARGET chunkstream_client PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set_property(TARGET chunkstream_sender PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set_property(TARGET chunkstream_receiver PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-# Create example executables
-add_executable(server_example src/server_example.cpp)
-add_executable(client_example src/client_example.cpp)
-
-# Set the example executable output directories
-set_target_properties(server_example PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Release"
-)
-
-set_target_properties(client_example PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Release"
-)
-
-# Link examples with libraries and ensure correct build order
-target_link_libraries(server_example PRIVATE chunkstream_server)
-target_link_libraries(client_example PRIVATE chunkstream_client)
-
-# Configure static runtime linking for MSVC example executables
-if(MSVC AND NOT BUILD_SHARED_LIBS)
-    set_property(TARGET server_example PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    set_property(TARGET client_example PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# Create example executable (if main.cpp exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+    add_executable(chunkstream_example src/main.cpp)
+    
+    # Set the example executable output directories
+    set_target_properties(chunkstream_example PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
+    )
+    
+    # Link with both libraries
+    target_link_libraries(chunkstream_example PRIVATE chunkstream_sender chunkstream_receiver)
+    
+    # Configure static runtime linking for MSVC example executable
+    if(MSVC AND NOT BUILD_SHARED_LIBS)
+        set_property(TARGET chunkstream_example PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
 endif()
 
 # Installation settings
@@ -165,7 +175,7 @@ include(GNUInstallDirs)
 set(INSTALL_CONFIGDIR ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
 
 # Install libraries
-install(TARGETS chunkstream_server chunkstream_client
+install(TARGETS chunkstream_sender chunkstream_receiver
     EXPORT ${PROJECT_NAME}Targets
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

@@ -3,57 +3,18 @@
 
 #include <asio.hpp>
 #include <functional>
+#include "chunkstream/receiver/receiving_frame.h"
 #include "chunkstream/core/chunk_header.h"
 #include "chunkstream/core/thread_pool.h"
 #include "chunkstream/core/ordered_hash_container.h"
+#include "chunkstream/receiver/memory_pool.h"
 
 namespace chunkstream {
 
 class Receiver {
-
-private: 
-  class ReceivingFrame {
-  public:
-    // @memory_pool requires its size as `total_chunks * chunk_size` 
-    // @param send_assembled_callback `_1` for data ptr, `_2` for size of the data 
-    ReceivingFrame(std::shared_ptr<asio::io_context> io_context, 
-                  const size_t total_chunks, 
-                  uint8_t* memory_pool,
-                  const size_t memory_pool_block_size,
-                  std::function<void(const ChunkHeader header)> request_resend_func,
-                  std::function<void(uint8_t* data, const size_t size)> send_assembled_callback);
-
-    bool IsChunkAdded(const uint16_t chunk_index);
-    bool IsTimeout();
-
-    // @data should be `recv_buffer_.data() + CHUNKHEADER_SIZE`
-    void AddChunk(const ChunkHeader& header, uint8_t* data);
-
-  private:
-    void __RequestResend(const uint32_t id);
-    void __PeriodicResend(const uint32_t id);
-
-  private:
-    std::shared_ptr<asio::io_context> io_context_;
-    std::function<void(const ChunkHeader header)> request_resend_func_;
-    std::function<void(uint8_t* data, const size_t size)> send_assembled_callback_;
-    asio::steady_timer init_chunk_timer_;
-    asio::steady_timer frame_drop_timer_;
-    asio::steady_timer resend_timer_;
-    std::vector<std::atomic_bool> chunk_bitmap_;
-    std::vector<ChunkHeader> chunk_headers_;
-    const std::chrono::milliseconds INIT_CHUNK_TIMEOUT;
-    const std::chrono::milliseconds FRAME_DROP_TIMEOUT; 
-    const std::chrono::milliseconds RESEND_TIMEOUT;
-    uint8_t* data_;
-    const size_t BLOCK_SIZE;
-    std::atomic_bool request_resend_ = false;
-    std::atomic_bool request_timeout_ = false;
-  };
-
 public:
   Receiver(const int port, 
-           std::function<void(const std::vector<uint8_t>&)> grab,
+           std::function<void(const std::vector<uint8_t>& data, std::function<void()> Release)> grab,
            const int mtu = 1500, 
            const size_t buffer_size = 10, 
            const size_t max_data_size = 0, 
@@ -67,38 +28,39 @@ public:
   size_t GetFrameCount();
   size_t GetDropCount();
 
+public:
+  const size_t BUFFER_SIZE;
+
 private: 
   void __Receive();
-  void __HandlePacket(const int raw_pool_index);
+  void __HandlePacket(uint8_t* recv_buf);
   void __RequestResend(const ChunkHeader header);
-  void __FrameGrabbed(uint8_t* data, const size_t size);
+  void __FrameGrabbed(const uint32_t id, uint8_t* data, const size_t size);
 
 private: 
   const asio::ip::udp::endpoint SENDER_ENDPOINT;
   std::atomic_bool running_ = false;
-  std::function<void(const std::vector<uint8_t>&)> grabbed_;
+  std::function< void(const std::vector<uint8_t>&, std::function<void()>) > grabbed_;
   asio::ip::udp::socket socket_;
   asio::ip::udp::endpoint remote_endpoint_;
   std::shared_ptr<asio::io_context> io_context_ = std::make_shared<asio::io_context>();
 
   // [ <-- BLOCK_SIZE * BUFFER_SIZE --> ]
   // block: one data (assembled packets)
-  std::vector<uint8_t> data_pool_;
-  const size_t DATA_POOL_BLOCK_SIZE; // Expected pure data size
-  std::atomic_int data_pool_index_;
+  MemoryPool data_pool_;
 
   // [ <-- PACKET_SIZE * EXPECTED_CHUNK_COUNT * BUFFER_SIZE --> ]
   // block: one packet
-  std::vector<uint8_t> raw_pool_;
-  const size_t RAW_POOL_BLOCK_SIZE;
-  std::atomic_int raw_pool_index_;
-  size_t RAW_BUFFER_SIZE; // EXPECTED_CHUNK_COUNT * BUFFER_SIZE
+  MemoryPool raw_pool_;
+  
+  // [ <-- CHUNKHEADER_SIZE * BUFFER_SIZE --> ]
+  // block: one chunk_header
+  MemoryPool resend_pool_;
 
+  std::queue< std::pair<uint32_t, uint8_t*> > dropped_queue_;
 
-  std::vector<uint8_t> resend_request_memory_pool_;
-
-  OrderedHashContainer<uint32_t, ReceivingFrame> assembling_queue_;
-  const size_t BUFFER_SIZE;
+  OrderedHashContainer<uint32_t, std::unique_ptr<ReceivingFrame> > assembling_queue_;
+  std::mutex assembling_queue_push_mutex_;
 
   std::shared_ptr<ThreadPool> threads_;
 

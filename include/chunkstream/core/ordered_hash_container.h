@@ -14,20 +14,42 @@ private:
     
 public:
   // O(1) insertion
-  void push_back(const Key& key, const Value& value) {
-      ordered_data_.emplace_back(key, value);
-      auto it = std::prev(ordered_data_.end());
-      key_to_iterator_[key] = it;
+  auto& push_back(const Key& key, const Value& value) {
+    auto& ref = ordered_data_.emplace_back(key, value);
+    auto it = std::prev(ordered_data_.end());
+    key_to_iterator_[key] = it;
+    return ref;
+  }
+
+  // O(1) insertion
+  auto& push_back(const Key& key, Value&& value) {
+    auto& ref = ordered_data_.emplace_back(key, std::move(value));
+    auto it = std::prev(ordered_data_.end());
+    key_to_iterator_[key] = it;
+    return ref;
   }
   
+  // O(1) in-place construction
+  template<typename... Args>
+  auto& emplace_back(const Key& key, Args&&... args) {
+    auto& ref = ordered_data_.emplace_back(
+      std::piecewise_construct,
+      std::forward_as_tuple(key),
+      std::forward_as_tuple(std::forward<Args>(args)...)
+    );
+    auto it = std::prev(ordered_data_.end());
+    key_to_iterator_[key] = it;
+    return ref;
+  }
+
   // O(1) front
   const std::pair<Key, Value>& front() const {
-      return ordered_data_.front();
+    return ordered_data_.front();
   }
   
   // O(1) back
   const std::pair<Key, Value>& back() const {
-      return ordered_data_.back();
+    return ordered_data_.back();
   }
   
   // O(1) ~ O(n) search
