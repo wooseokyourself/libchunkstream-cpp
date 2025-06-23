@@ -1,4 +1,5 @@
 #include "chunkstream/receiver.h"
+#include <iostream>
 
 namespace chunkstream {
 
@@ -10,16 +11,22 @@ Receiver::Receiver(const int port,
                    std::string sender_ip, 
                    const int sender_port) 
 : grabbed_(grab),
-  socket_(*io_context_, asio::ip::udp::endpoint(asio::ip::udp::v4(), port)), 
-  BUFFER_SIZE(buffer_size), 
+  BUFFER_SIZE(buffer_size),
+  MTU(mtu), 
+  PAYLOAD(MTU - 20 - 8 - CHUNKHEADER_SIZE), 
   data_pool_(max_data_size, buffer_size), 
   raw_pool_(mtu - 20 - 8, 
-            ((max_data_size + (mtu - 20 - 8 - CHUNKHEADER_SIZE) - 1) 
-            / (mtu - 20 - 8 - CHUNKHEADER_SIZE)) * buffer_size),
-  resend_pool_(CHUNKHEADER_SIZE, buffer_size), 
-  SENDER_ENDPOINT(asio::ip::address::from_string(sender_ip), sender_port)
+            ((max_data_size + PAYLOAD - 1) / PAYLOAD) * buffer_size),
+  resend_pool_(CHUNKHEADER_SIZE, buffer_size)
 {
-  threads_ = std::make_shared<ThreadPool>(std::thread::hardware_concurrency());
+  try {
+    SENDER_ENDPOINT = asio::ip::udp::endpoint(asio::ip::address::from_string(sender_ip), sender_port);
+    socket_ = std::make_unique<asio::ip::udp::socket>(*io_context_, asio::ip::udp::endpoint(asio::ip::udp::v4(), port));
+    threads_ = std::make_shared<ThreadPool>(std::thread::hardware_concurrency());
+  } catch (const std::exception& e) {
+    std::cerr << "Error initializing Receiver: " << e.what() << std::endl;
+    throw;
+  }
 }
 
 Receiver::~Receiver() {
@@ -49,22 +56,31 @@ size_t Receiver::GetDropCount() {
 
 void Receiver::__Receive() {
   uint8_t* recv_buf = raw_pool_.Acquire();
-
-  socket_.async_receive_from(
-    // asio::buffer(recv_buf, RAW_POOL_BLOCK_SIZE), 
+  if (!recv_buf) {
+    std::cerr << "Receive error: Buffer overflow; bigger buffer_size is required" << std::endl;
+    return;
+  } 
+  socket_->async_receive_from(
     asio::buffer(recv_buf, raw_pool_.BLOCK_SIZE), 
     remote_endpoint_,
     [this, recv_buf](
-      const asio::error_code& error, std::size_t bytes_transferred
+      const std::error_code& error, std::size_t bytes_transferred
     ) {
-      if ((!error || error == asio::error::message_size) && bytes_transferred >= CHUNKHEADER_SIZE) {
-        threads_->Enqueue([this, recv_buf]() {
-          __HandlePacket(recv_buf);
-        });
+      if (error) {
+        std::cerr << "Receive error(" << error << "): " << error.message() << std::endl;
       }
+      if (!error && bytes_transferred >= CHUNKHEADER_SIZE) {
+        // threads_->Enqueue([this, recv_buf]() { __HandlePacket(recv_buf); });
+        try {
+          __HandlePacket(recv_buf);
+        } catch (const std::error_code& error) {
+          std::cerr << "Handling packet error(" << error << "): " << error.message() << std::endl;
+        }
+      }
+      if (running_) __Receive();
     }
   );
-  if (running_) __Receive();
+  // if (running_) __Receive();
 }
 
 void Receiver::__HandlePacket(uint8_t* recv_buf) {
@@ -74,9 +90,12 @@ void Receiver::__HandlePacket(uint8_t* recv_buf) {
   
   NetworkToHost(&header);
 
+  std::cout << "Receive ChunkHeader(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks;
+
   if (assembling_queue_.empty()
       || (assembling_queue_.front().first < header.id && !assembling_queue_.find(header.id))) {
     
+    std::cout << " >> New" << std::endl;
     // Buffering
     while (!dropped_queue_.empty()) {
       const std::pair<uint32_t, uint8_t*> dropped = dropped_queue_.front();
@@ -95,10 +114,12 @@ void Receiver::__HandlePacket(uint8_t* recv_buf) {
         header.id, 
         header.total_chunks, 
         data_pool_starting, 
-        data_pool_.BLOCK_SIZE,
+        // data_pool_.BLOCK_SIZE,
+        PAYLOAD, 
         std::bind(&Receiver::__RequestResend, this, std::placeholders::_1), 
         std::bind(&Receiver::__FrameGrabbed, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), 
         [this](const uint32_t id, uint8_t* data) { // Dropped callback
+          std::cout << "Frame " << id << " dropped" << std::endl;
           dropped_queue_.push({id, data});
           dropped_count_++;
         }
@@ -111,14 +132,19 @@ void Receiver::__HandlePacket(uint8_t* recv_buf) {
       assembling_queue_.push_back(header.id, std::move(frame_ptr));
     } else {
       // Buffer is full, drop packet
+      std::cerr << "Receive error: Buffer overflow; bigger buffer_size is required" << std::endl;
     }
   } else {
+    std::cout << " >";
     auto* frame_ptr_ptr = assembling_queue_.find(header.id);
+    std::cout << ">";
     if (frame_ptr_ptr && *frame_ptr_ptr && !(*frame_ptr_ptr)->IsTimeout() && !(*frame_ptr_ptr)->IsChunkAdded(header.chunk_index)) {
+      std::cout << "> ";
       // Push chunk to the frame
       (*frame_ptr_ptr)->AddChunk(header, recv_buf + CHUNKHEADER_SIZE);
+      std::cout << "Exist" << std::endl;
     } else {
-      // drop packet
+      std::cout << "Drop packet" << std::endl;
     }
   }
   raw_pool_.Release(recv_buf);
@@ -128,10 +154,16 @@ void Receiver::__RequestResend(const ChunkHeader header) {
   const ChunkHeader n_header = HostToNetwork(header);
   uint8_t* data = resend_pool_.Acquire();
   std::memcpy(data, &n_header, CHUNKHEADER_SIZE);
-  socket_.async_send_to(
+  std::cout << "Send resend(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks << std::endl;
+  socket_->async_send_to(
     asio::buffer(data, CHUNKHEADER_SIZE), 
     SENDER_ENDPOINT, 
-    [this, data](const asio::error_code& error, std::size_t bytes_transferred) { resend_pool_.Release(data); }
+    [this, data](const std::error_code& error, std::size_t bytes_transferred) { 
+      if (error) {
+        std::cerr << "Send request error(" << error << "): " << error.message() << std::endl;
+      }
+      resend_pool_.Release(data); 
+    }
   );
 }
 

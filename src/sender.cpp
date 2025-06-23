@@ -1,4 +1,5 @@
 #include "chunkstream/sender.h"
+#include <iostream>
 
 namespace chunkstream {
 
@@ -8,21 +9,45 @@ template <class T> const T& min (const T& a, const T& b) {
 
 Sender::Sender(const std::string& ip, const int port, 
                const int mtu, const size_t buffer_size, const size_t max_data_size)
-  : socket_(io_context_, asio::ip::udp::v4()), 
-    ENDPOINT(asio::ip::address::from_string(ip), port), 
-    MTU(mtu), 
+  : MTU(mtu), 
     PAYLOAD(MTU - 20 - 8 - CHUNKHEADER_SIZE), // mtu - IP header - UDP header - Chunk header
     buffer_index_(0), 
     id_(0) {
-  threads_ = std::make_shared<ThreadPool>(std::thread::hardware_concurrency());
-  if (max_data_size > 0) {
-    const int total_chunks = (max_data_size + PAYLOAD - 1) / PAYLOAD;
-    buffer_.resize(buffer_size);
-    for (int i = 0; i < buffer_.size(); i++) {
-      buffer_[i] = std::make_unique<SendingFrame>();
-      buffer_[i]->id = -1;
-      buffer_[i]->chunks.resize(total_chunks, std::vector<uint8_t>(CHUNKHEADER_SIZE + PAYLOAD));
+  
+  try {
+    // Create the endpoint first to validate IP
+    ENDPOINT = asio::ip::udp::endpoint(asio::ip::address::from_string(ip), port);
+    
+    // Initialize socket
+    socket_ = std::make_unique<asio::ip::udp::socket>(io_context_, asio::ip::udp::v4());
+    
+    threads_ = std::make_shared<ThreadPool>(std::thread::hardware_concurrency());
+    
+    if (max_data_size > 0) {
+      const int total_chunks = (max_data_size + PAYLOAD - 1) / PAYLOAD;
+      
+      // Pre-allocate buffer
+      buffer_.reserve(buffer_size);
+      
+      for (int i = 0; i < buffer_size; i++) {
+        auto frame = std::make_unique<SendingFrame>();
+        frame->id = -1;
+        
+        // Carefully allocate memory for chunks
+        frame->chunks.reserve(total_chunks);
+        for (int j = 0; j < total_chunks; j++) {
+          frame->chunks.emplace_back(CHUNKHEADER_SIZE + PAYLOAD);
+        }
+        
+        buffer_.push_back(std::move(frame));
+      }
     }
+    
+    std::cout << "Sender Constructor completed successfully" << std::endl;
+  }
+  catch (const std::exception& e) {
+    std::cerr << "Sender construction failed: " << e.what() << std::endl;
+    throw; // Re-throw to notify caller
   }
 }
 
@@ -70,16 +95,37 @@ void Sender::Send(const uint8_t* data, const size_t size) {
     std::memcpy(packet, &n_header, CHUNKHEADER_SIZE);
     std::memcpy(packet + CHUNKHEADER_SIZE, data + (i * PAYLOAD), header.chunk_size);
     {
-      socket_.async_send_to(
+      // async
+      socket_->async_send_to(
         asio::buffer(
-          packet, static_cast<size_t>(CHUNKHEADER_SIZE + header.chunk_size)
+          packet, CHUNKHEADER_SIZE + static_cast<size_t>(header.chunk_size)
         ), 
         ENDPOINT, 
-        [this, frame](const asio::error_code& error, std::size_t bytes_transferred) { 
+        [this, frame](const std::error_code& error, std::size_t bytes_transferred) { 
+          //std::cout << "Send.async_send_to Bytes transferred: " << bytes_transferred << ", msg=" << error.message() << std::endl;
+          if (error) {
+            std::cerr << "Send error(" << error << "): " << error.message() << std::endl;
+          }
           std::lock_guard<std::mutex> lock(frame->ref_count_lock);
           frame->ref_count--; 
         }
       );
+      /*
+      // sync 
+      try {
+        size_t sent = socket_->send_to(
+          asio::buffer(
+            packet, CHUNKHEADER_SIZE + static_cast<size_t>(header.chunk_size)
+          ), 
+          ENDPOINT
+        );
+        std::cout << "Send succeed: " << sent << "bytes" << std::endl;
+        std::lock_guard<std::mutex> lock(frame->ref_count_lock);
+        frame->ref_count--;
+      } catch (const std::error_code& error){
+        std::cerr << "Send error(" << error << "): " << error.message() << std::endl;
+      }
+      */
     }
   }
   
@@ -97,9 +143,9 @@ void Sender::Stop() {
 }
 
 void Sender::__Receive() {
-  socket_.async_receive_from(
+  socket_->async_receive_from(
     asio::buffer(recv_buffer_), remote_endpoint_,
-    [this](const asio::error_code& error, std::size_t bytes_transferred) {
+    [this](const std::error_code& error, std::size_t bytes_transferred) {
       if ((!error || error == asio::error::message_size) 
           && bytes_transferred >= CHUNKHEADER_SIZE) {
         ChunkHeader header;
@@ -137,12 +183,12 @@ void Sender::__HandlePacket(ChunkHeader header) {
   // Overwrite chunk header (for changed type to "RESEND")
   std::memcpy(frame->chunks[header.chunk_index].data(), &n_header, CHUNKHEADER_SIZE);
 
-  socket_.async_send_to(
+  socket_->async_send_to(
     asio::buffer(
       frame->chunks[header.chunk_index].data(), CHUNKHEADER_SIZE + header.chunk_size
     ), 
     ENDPOINT, 
-    [this, frame](const asio::error_code& error, std::size_t bytes_transferred) { 
+    [this, frame](const std::error_code& error, std::size_t bytes_transferred) { 
       std::lock_guard<std::mutex> lock(frame->ref_count_lock);
       frame->ref_count--; 
     }

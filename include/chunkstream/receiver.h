@@ -30,6 +30,8 @@ public:
 
 public:
   const size_t BUFFER_SIZE;
+  const size_t MTU;
+  const size_t PAYLOAD;
 
 private: 
   void __Receive();
@@ -38,10 +40,10 @@ private:
   void __FrameGrabbed(const uint32_t id, uint8_t* data, const size_t size);
 
 private: 
-  const asio::ip::udp::endpoint SENDER_ENDPOINT;
+  asio::ip::udp::endpoint SENDER_ENDPOINT;
   std::atomic_bool running_ = false;
   std::function< void(const std::vector<uint8_t>&, std::function<void()>) > grabbed_;
-  asio::ip::udp::socket socket_;
+  std::unique_ptr<asio::ip::udp::socket> socket_;
   asio::ip::udp::endpoint remote_endpoint_;
   std::shared_ptr<asio::io_context> io_context_ = std::make_shared<asio::io_context>();
 

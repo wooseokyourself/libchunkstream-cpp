@@ -1,4 +1,5 @@
 #include "chunkstream/receiver/receiving_frame.h"
+#include <iostream>
 
 namespace chunkstream {
 
@@ -61,12 +62,18 @@ void ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data) {
     }
     
   }
-
+  std::cout << "ReceivingFrame::AddChunk 1" << std::endl;
+  assert(data != nullptr);
+  assert(data_ != nullptr);
+  assert((data_ + (header.chunk_index * BLOCK_SIZE)) != nullptr);
+  assert((data + header.chunk_size - 1) != nullptr);
+  assert((data_ + (header.chunk_index * BLOCK_SIZE) + header.chunk_size - 1) != nullptr);
   std::memcpy(
     data_ + (header.chunk_index * BLOCK_SIZE),
     data, 
     header.chunk_size
   );
+  //std::cout << "ReceivingFrame::AddChunk 2" << std::endl;
 
   if (all_chunk_added) {
     status_ = READY;
@@ -76,35 +83,43 @@ void ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data) {
     __SendAssembledCallback(ID, data_, header.total_size);
   } else {
     if (header.transmission_type == 0 && !request_resend_) { // type == INIT
+      //std::cout << "ReceivingFrame::AddChunk 3-1-1" << std::endl;
       init_chunk_timer_.cancel();
+      //std::cout << "ReceivingFrame::AddChunk 3-1-2" << std::endl;
       init_chunk_timer_.expires_after(INIT_CHUNK_TIMEOUT);
-      init_chunk_timer_.async_wait([this, header](const asio::error_code& ec) {
-        if (!ec) {
-          request_resend_ = true;
-          __RequestResend(header.id);
+      //std::cout << "ReceivingFrame::AddChunk 3-1-3" << std::endl;
+      init_chunk_timer_.async_wait([this, header](const std::error_code& error) {
+        if (error) {
+          if (error.value() != 995) { // 995 is "cancellation"
+            std::cerr << "INIT_CHUNK_TIMEOUT error(" << error << "): " << error.message() << std::endl;
+          }
+          return;
         }
+        request_resend_ = true;
+
+        // Start frame-drop timer
+        frame_drop_timer_.expires_after(FRAME_DROP_TIMEOUT);
+        frame_drop_timer_.async_wait([this, id = header.id](const std::error_code& ec) {
+          if (!ec) {
+            request_resend_ = false;
+            request_timeout_ = true;
+            status_ = DROPPED;
+            __DroppedCallback(ID, data_);
+          }
+        });
+
+        // Start resend requesting
+        __RequestResend(header.id); // Recursively call
       });
+      //std::cout << "ReceivingFrame::AddChunk 3-1-4" << std::endl;
     } else { // type == RESEND
       // nothing
+      //std::cout << "ReceivingFrame::AddChunk 3-2-1" << std::endl;
     }
   }
 }
 
 void ReceivingFrame::__RequestResend(const uint32_t id) {
-  frame_drop_timer_.expires_after(FRAME_DROP_TIMEOUT);
-  frame_drop_timer_.async_wait([this](const asio::error_code& ec) {
-    if (!ec) {
-      request_resend_ = false;
-      request_timeout_ = true;
-      status_ = DROPPED;
-      __DroppedCallback(ID, data_);
-    }
-  });
-  
-  __PeriodicResend(id); // Recursively call
-}
-
-void ReceivingFrame::__PeriodicResend(const uint32_t id) {
   if (!request_resend_) return;
   
   {
@@ -122,8 +137,14 @@ void ReceivingFrame::__PeriodicResend(const uint32_t id) {
   }
   
   resend_timer_.expires_after(RESEND_TIMEOUT);
-  resend_timer_.async_wait([this, id](const asio::error_code& ec) {
-    if (!ec) __PeriodicResend(id);
+  resend_timer_.async_wait([this, id](const std::error_code& error) {
+    if (error) {
+      if (error.value() != 995) { // 995 is "cancellation"
+        std::cerr << "RESEND_TIMEOUT error(" << error << "): " << error.message() << std::endl;
+      }
+      return;
+    }
+    __RequestResend(id);
   });
 }
 

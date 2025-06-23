@@ -36,7 +36,6 @@ public:
 
 private:
   void __RequestResend(const uint32_t id);
-  void __PeriodicResend(const uint32_t id);
 
 public: 
   const uint32_t ID;

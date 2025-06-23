@@ -33,10 +33,10 @@ private:
 
 private: 
   std::atomic_bool running_ = false;
-  asio::ip::udp::socket socket_;
+  std::unique_ptr<asio::ip::udp::socket> socket_;
   asio::ip::udp::endpoint remote_endpoint_;
   asio::io_context io_context_; // Must be ran if using async_send_to()
-  const asio::ip::udp::endpoint ENDPOINT;
+  asio::ip::udp::endpoint ENDPOINT;
   const int MTU;
   const int PAYLOAD;
   std::array<uint8_t, 65553> recv_buffer_;

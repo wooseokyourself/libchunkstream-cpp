@@ -13,9 +13,9 @@
 using namespace chunkstream;
 
 // Test configuration
-constexpr int TEST_PORT = 12345;
+constexpr int TEST_PORT = 56343;
 constexpr int TEST_MTU = 1500;
-constexpr size_t TEST_BUFFER_SIZE = 10;
+constexpr size_t TEST_BUFFER_SIZE = 200;
 constexpr size_t MAX_DATA_SIZE = 1024 * 1024; // 1MB
 const std::string TEST_IP = "127.0.0.1";
 
@@ -114,6 +114,7 @@ void SenderTest() {
             1024,          // 1KB
             4096,          // 4KB
             16384,         // 16KB
+            32768,         // 32KB
             65536,         // 64KB
             MAX_DATA_SIZE  // 1MB
         };
@@ -157,6 +158,7 @@ void ReceiverTest() {
     try {
         std::cout << "Starting receiver on port " << TEST_PORT << std::endl;
         
+        std::cout << "Before construct receiver" << std::endl;
         Receiver receiver(
             TEST_PORT,
             OnDataReceived,
@@ -166,6 +168,7 @@ void ReceiverTest() {
             TEST_IP,
             TEST_PORT
         );
+        std::cout << "After construct receiver" << std::endl;
         
         // Start receiver (this will block)
         receiver.Start();
@@ -206,7 +209,7 @@ int main(int argc, char* argv[]) {
     std::cout << std::endl;
     
     // Start statistics thread
-    std::thread stats_thread(PrintStatistics);
+    //std::thread stats_thread(PrintStatistics);
     
     try {
         if (mode == "sender") {
@@ -239,7 +242,7 @@ int main(int argc, char* argv[]) {
     }
     
     test_running = false;
-    stats_thread.join();
+    //stats_thread.join();
     
     std::cout << "\nFinal Statistics:" << std::endl;
     std::cout << "Total sent: " << total_sent << " frames (" 
