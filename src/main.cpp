@@ -164,9 +164,7 @@ void ReceiverTest() {
             OnDataReceived,
             TEST_MTU,
             TEST_BUFFER_SIZE,
-            MAX_DATA_SIZE,
-            TEST_IP,
-            TEST_PORT
+            MAX_DATA_SIZE
         );
         std::cout << "After construct receiver" << std::endl;
         

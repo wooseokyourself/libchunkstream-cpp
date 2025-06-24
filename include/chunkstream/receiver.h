@@ -17,9 +17,7 @@ public:
            std::function<void(const std::vector<uint8_t>& data, std::function<void()> Release)> grab,
            const int mtu = 1500, 
            const size_t buffer_size = 10, 
-           const size_t max_data_size = 0, 
-           std::string sender_ip = "localhost", 
-           const int sender_port = 35241) ;
+           const size_t max_data_size = 0) ;
   ~Receiver();
 
   // It will block thread
@@ -35,12 +33,11 @@ public:
 
 private: 
   void __Receive();
-  void __HandlePacket(uint8_t* recv_buf);
-  void __RequestResend(const ChunkHeader header);
+  void __HandlePacket(const asio::ip::udp::endpoint& sender_endpoint, uint8_t* recv_buf);
+  void __RequestResend(const ChunkHeader header, const asio::ip::udp::endpoint endpoint);
   void __FrameGrabbed(const uint32_t id, uint8_t* data, const size_t size);
 
 private: 
-  asio::ip::udp::endpoint SENDER_ENDPOINT;
   std::atomic_bool running_ = false;
   std::function< void(const std::vector<uint8_t>&, std::function<void()>) > grabbed_;
   std::unique_ptr<asio::ip::udp::socket> socket_;

@@ -5,11 +5,13 @@ namespace chunkstream {
 
 ReceivingFrame::ReceivingFrame(
   std::shared_ptr<asio::io_context> io_context, 
+  const asio::ip::udp::endpoint sender_endpoint, 
   const uint32_t id, 
   const size_t total_chunks, 
   uint8_t* memory_pool,
   const size_t memory_pool_block_size, 
-  std::function<void(const ChunkHeader header)> request_resend_func,
+  std::function<void(const ChunkHeader header, 
+                     const asio::ip::udp::endpoint endpoint)> request_resend_func,
   std::function<void(const uint32_t id, 
                      uint8_t* data, 
                      const size_t size)> send_assembled_callback, 
@@ -29,6 +31,7 @@ ReceivingFrame::ReceivingFrame(
   status_(ASSEMBLING) {
   
   assert(memory_pool);
+  SENDER_ENDPOINT = sender_endpoint;
   chunk_bitmap_.resize(total_chunks, false);
   chunk_headers_.resize(total_chunks);
   data_ = memory_pool;
@@ -62,7 +65,7 @@ void ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data) {
     }
     
   }
-  std::cout << "ReceivingFrame::AddChunk 1" << std::endl;
+  //std::cout << "ReceivingFrame::AddChunk 1" << std::endl;
   assert(data != nullptr);
   assert(data_ != nullptr);
   assert((data_ + (header.chunk_index * BLOCK_SIZE)) != nullptr);
@@ -131,7 +134,7 @@ void ReceivingFrame::__RequestResend(const uint32_t id) {
         req_header.id = id;
         req_header.chunk_index = static_cast<uint16_t>(i);
         req_header.total_chunks = static_cast<uint16_t>(chunk_bitmap_.size());
-        __RequestResendCallback(req_header);
+        __RequestResendCallback(req_header, SENDER_ENDPOINT);
       }
     }
   }

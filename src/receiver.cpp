@@ -7,9 +7,7 @@ Receiver::Receiver(const int port,
                    std::function<void(const std::vector<uint8_t>&, std::function<void()>) > grab, 
                    const int mtu, 
                    const size_t buffer_size, 
-                   const size_t max_data_size, 
-                   std::string sender_ip, 
-                   const int sender_port) 
+                   const size_t max_data_size) 
 : grabbed_(grab),
   BUFFER_SIZE(buffer_size),
   MTU(mtu), 
@@ -20,8 +18,10 @@ Receiver::Receiver(const int port,
   resend_pool_(CHUNKHEADER_SIZE, buffer_size)
 {
   try {
-    SENDER_ENDPOINT = asio::ip::udp::endpoint(asio::ip::address::from_string(sender_ip), sender_port);
-    socket_ = std::make_unique<asio::ip::udp::socket>(*io_context_, asio::ip::udp::endpoint(asio::ip::udp::v4(), port));
+    socket_ = std::make_unique<asio::ip::udp::socket>(
+      *io_context_, 
+      asio::ip::udp::endpoint(asio::ip::udp::v4(), port)
+    );
     threads_ = std::make_shared<ThreadPool>(std::thread::hardware_concurrency());
   } catch (const std::exception& e) {
     std::cerr << "Error initializing Receiver: " << e.what() << std::endl;
@@ -72,7 +72,7 @@ void Receiver::__Receive() {
       if (!error && bytes_transferred >= CHUNKHEADER_SIZE) {
         // threads_->Enqueue([this, recv_buf]() { __HandlePacket(recv_buf); });
         try {
-          __HandlePacket(recv_buf);
+          __HandlePacket(remote_endpoint_, recv_buf);
         } catch (const std::error_code& error) {
           std::cerr << "Handling packet error(" << error << "): " << error.message() << std::endl;
         }
@@ -83,17 +83,19 @@ void Receiver::__Receive() {
   // if (running_) __Receive();
 }
 
-void Receiver::__HandlePacket(uint8_t* recv_buf) {
+void Receiver::__HandlePacket(const asio::ip::udp::endpoint& sender_endpoint, uint8_t* recv_buf) {
   ChunkHeader header;
 
   std::memcpy(&header, recv_buf, CHUNKHEADER_SIZE);
   
   NetworkToHost(&header);
 
-  std::cout << "Receive ChunkHeader(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks;
+  std::cout << "Receive ChunkHeader(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks << " from " << sender_endpoint.address() << ":" << sender_endpoint.port();
 
   if (assembling_queue_.empty()
-      || (assembling_queue_.front().first < header.id && !assembling_queue_.find(header.id))) {
+      || (/*assembling_queue_.front().first < header.id &&*/
+         !assembling_queue_.find(header.id) && 
+         header.transmission_type == 0)) {
     
     std::cout << " >> New" << std::endl;
     // Buffering
@@ -111,12 +113,13 @@ void Receiver::__HandlePacket(uint8_t* recv_buf) {
 
       auto frame_ptr = std::make_unique<ReceivingFrame>(
         io_context_, 
+        sender_endpoint, 
         header.id, 
         header.total_chunks, 
         data_pool_starting, 
         // data_pool_.BLOCK_SIZE,
         PAYLOAD, 
-        std::bind(&Receiver::__RequestResend, this, std::placeholders::_1), 
+        std::bind(&Receiver::__RequestResend, this, std::placeholders::_1, std::placeholders::_2), 
         std::bind(&Receiver::__FrameGrabbed, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), 
         [this](const uint32_t id, uint8_t* data) { // Dropped callback
           std::cout << "Frame " << id << " dropped" << std::endl;
@@ -150,21 +153,35 @@ void Receiver::__HandlePacket(uint8_t* recv_buf) {
   raw_pool_.Release(recv_buf);
 }
 
-void Receiver::__RequestResend(const ChunkHeader header) {
+void Receiver::__RequestResend(const ChunkHeader header, const asio::ip::udp::endpoint endpoint) {
   const ChunkHeader n_header = HostToNetwork(header);
   uint8_t* data = resend_pool_.Acquire();
   std::memcpy(data, &n_header, CHUNKHEADER_SIZE);
-  std::cout << "Send resend(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks << std::endl;
+  /*
   socket_->async_send_to(
     asio::buffer(data, CHUNKHEADER_SIZE), 
-    SENDER_ENDPOINT, 
-    [this, data](const std::error_code& error, std::size_t bytes_transferred) { 
+    endpoint, 
+    [this, data, header](const std::error_code& error, std::size_t bytes_transferred) { 
+      std::cout << "Send resend(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks << std::endl;
       if (error) {
         std::cerr << "Send request error(" << error << "): " << error.message() << std::endl;
       }
       resend_pool_.Release(data); 
     }
   );
+  */
+  try {
+    size_t len = socket_->send_to(
+      asio::buffer(data, CHUNKHEADER_SIZE), 
+      endpoint
+    );
+  } catch (const std::error_code& error) {
+    std::cout << "Send resend(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks << std::endl;
+    if (error) {
+      std::cerr << "Send request error(" << error << "): " << error.message() << std::endl;
+    }
+  }
+  resend_pool_.Release(data); 
 }
 
 void Receiver::__FrameGrabbed(const uint32_t id, uint8_t* data, const size_t size) {

@@ -17,14 +17,16 @@ public:
   // @memory_pool requires its size as `total_chunks * chunk_size` 
   // @param send_assembled_callback `_1` for data ptr, `_2` for size of the data 
   ReceivingFrame(std::shared_ptr<asio::io_context> io_context, 
+                const asio::ip::udp::endpoint sender_endpoint, 
                 const uint32_t id, 
                 const size_t total_chunks, 
                 uint8_t* memory_pool,
                 const size_t memory_pool_block_size,
-                std::function<void(const ChunkHeader header)> request_resend_func,
+                std::function<void(const ChunkHeader header, 
+                                   const asio::ip::udp::endpoint endpoint)> request_resend_func,
                 std::function<void(const uint32_t id, 
-                                    uint8_t* data, 
-                                    const size_t size)> send_assembled_callback, 
+                                   uint8_t* data, 
+                                   const size_t size)> send_assembled_callback, 
                 std::function<void(const uint32_t id, uint8_t* data)> dropped_callback);
 
   bool IsChunkAdded(const uint16_t chunk_index);
@@ -45,8 +47,9 @@ public:
   const std::chrono::milliseconds RESEND_TIMEOUT;
 
 private:
+  asio::ip::udp::endpoint SENDER_ENDPOINT;
   std::shared_ptr<asio::io_context> io_context_;
-  std::function<void(const ChunkHeader header)> __RequestResendCallback;
+  std::function<void(const ChunkHeader header, const asio::ip::udp::endpoint endpoint)> __RequestResendCallback;
   std::function<void(const uint32_t id, uint8_t* data, const size_t size)> __SendAssembledCallback;
   std::function<void(const uint32_t id, uint8_t* data)> __DroppedCallback;
   asio::steady_timer init_chunk_timer_;
