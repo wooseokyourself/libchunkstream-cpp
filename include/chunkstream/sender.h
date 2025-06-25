@@ -12,6 +12,7 @@ struct SendingFrame {
   uint32_t id;
   std::mutex ref_count_lock;
   uint16_t ref_count = 0;
+  std::vector<ChunkHeader> headers;
   std::vector< std::vector<uint8_t> > chunks;
 };
 
@@ -44,6 +45,7 @@ private:
   // Circular buffer for data.
   std::vector< std::unique_ptr<SendingFrame> > buffer_; 
   std::atomic_int buffer_index_;
+  std::mutex buffering_mutex_;
   std::atomic<uint32_t> id_;
   
   std::shared_ptr<ThreadPool> threads_;

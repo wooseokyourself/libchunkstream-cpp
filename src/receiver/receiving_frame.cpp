@@ -47,14 +47,19 @@ bool ReceivingFrame::IsTimeout() {
 
 // @data should be `recv_buffer_.data() + CHUNKHEADER_SIZE`
 void ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data) {
+  //std::cout << "ReceivingFrame::AddChunk 0" << std::endl;
   bool all_chunk_added = true;
   {
     std::lock_guard<std::mutex> lock(chunk_bitmap_mutex_);
+    //std::cout << "ReceivingFrame::AddChunk 0-1" << std::endl;
     
     assert(header.chunk_index < chunk_bitmap_.size());
+    //std::cout << "ReceivingFrame::AddChunk 0-2" << std::endl;
 
     chunk_bitmap_[header.chunk_index] = true;
+    //std::cout << "ReceivingFrame::AddChunk 0-3" << std::endl;
     chunk_headers_[header.chunk_index] = header;
+    //std::cout << "ReceivingFrame::AddChunk 0-4" << std::endl;
 
     // Check all chunks are added
     for (int i = chunk_bitmap_.size() - 1; i >= 0; i--) {
@@ -71,6 +76,7 @@ void ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data) {
   assert((data_ + (header.chunk_index * BLOCK_SIZE)) != nullptr);
   assert((data + header.chunk_size - 1) != nullptr);
   assert((data_ + (header.chunk_index * BLOCK_SIZE) + header.chunk_size - 1) != nullptr);
+  //std::cout << "ReceivingFrame::AddChunk 1-1, header.chunk_size=" << header.chunk_size << std::endl;
   std::memcpy(
     data_ + (header.chunk_index * BLOCK_SIZE),
     data, 
@@ -120,6 +126,14 @@ void ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data) {
       //std::cout << "ReceivingFrame::AddChunk 3-2-1" << std::endl;
     }
   }
+}
+
+int ReceivingFrame::GetStatus() {
+  return status_;
+}
+
+uint8_t* ReceivingFrame::GetData() {
+  return data_;
 }
 
 void ReceivingFrame::__RequestResend(const uint32_t id) {

@@ -23,8 +23,9 @@ public:
   // It will block thread
   void Start();
   void Stop();
-  size_t GetFrameCount();
-  size_t GetDropCount();
+  void Flush();
+  size_t GetFrameCount() const;
+  size_t GetDropCount() const;
 
 public:
   const size_t BUFFER_SIZE;
@@ -58,7 +59,7 @@ private:
 
   std::queue< std::pair<uint32_t, uint8_t*> > dropped_queue_;
 
-  OrderedHashContainer<uint32_t, std::unique_ptr<ReceivingFrame> > assembling_queue_;
+  OrderedHashContainer<uint32_t, std::shared_ptr<ReceivingFrame> > assembling_queue_;
   std::mutex assembling_queue_push_mutex_;
 
   std::shared_ptr<ThreadPool> threads_;

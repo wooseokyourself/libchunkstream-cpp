@@ -34,7 +34,8 @@ public:
 
   // @data should be `recv_buffer_.data() + CHUNKHEADER_SIZE`
   void AddChunk(const ChunkHeader& header, uint8_t* data);
-  void GetStatus();
+  int GetStatus();
+  uint8_t* GetData();
 
 private:
   void __RequestResend(const uint32_t id);
