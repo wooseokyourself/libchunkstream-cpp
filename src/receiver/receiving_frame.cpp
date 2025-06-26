@@ -99,8 +99,16 @@ void ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data) {
       //std::cout << "ReceivingFrame::AddChunk 3-1-3" << std::endl;
       init_chunk_timer_.async_wait([this, header](const std::error_code& error) {
         if (error) {
-          if (error.value() != 995) { // 995 is "cancellation"
-            std::cerr << "INIT_CHUNK_TIMEOUT error(" << error << "): " << error.message() << std::endl;
+          if (
+#ifdef __linux__
+              error.value() != 125 // ECANCELED
+#elif _WIN32
+              error.value() != 995 // ERROR_OPERATION_ABORTED
+#else
+              true
+#endif
+            ) {
+              std::cerr << "INIT_CHUNK_TIMEOUT error(" << error << "): " << error.message() << std::endl;
           }
           return;
         }
@@ -156,8 +164,16 @@ void ReceivingFrame::__RequestResend(const uint32_t id) {
   resend_timer_.expires_after(RESEND_TIMEOUT);
   resend_timer_.async_wait([this, id](const std::error_code& error) {
     if (error) {
-      if (error.value() != 995) { // 995 is "cancellation"
-        std::cerr << "RESEND_TIMEOUT error(" << error << "): " << error.message() << std::endl;
+      if (
+#ifdef __linux__
+          error.value() != 125 // ECANCELED
+#elif _WIN32
+          error.value() != 995 // ERROR_OPERATION_ABORTED
+#else
+          true
+#endif
+        ) {
+          std::cerr << "RESEND_TIMEOUT error(" << error << "): " << error.message() << std::endl;
       }
       return;
     }

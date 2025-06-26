@@ -25,8 +25,15 @@ if(WIN32)
     # On Windows, use CONFIG mode for packages from vcpkg
     find_package(asio CONFIG REQUIRED)
 else()
-    # On Linux/Ubuntu, use module mode 
-    find_package(asio REQUIRED)
+    find_path(ASIO_INCLUDE_DIR 
+        NAMES asio.hpp
+        PATHS /usr/include /usr/local/include
+    )
+    if(ASIO_INCLUDE_DIR)
+        message(STATUS "Found Asio: ${ASIO_INCLUDE_DIR}")
+    else()
+        message(FATAL_ERROR "Asio headers not found in system include paths")
+    endif()
 endif()
 
 # Output package information

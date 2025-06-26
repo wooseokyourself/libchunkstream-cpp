@@ -2,6 +2,9 @@
 #define CHUNKSTREAM_CORE_CHUNK_HEADER_H_
 
 #include <cstdint>
+#ifdef __linux__
+#include <cstddef>
+#endif
 
 namespace chunkstream {
 
