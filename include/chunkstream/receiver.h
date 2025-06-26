@@ -63,7 +63,6 @@ private:
   std::queue< std::pair<uint32_t, uint8_t*> > dropped_queue_;
 
   OrderedHashContainer<uint32_t, std::shared_ptr<ReceivingFrame> > assembling_queue_;
-  std::mutex assembling_queue_push_mutex_;
 
   std::atomic<size_t> assembled_count_ = 0;
   std::atomic<size_t> dropped_count_ = 0;

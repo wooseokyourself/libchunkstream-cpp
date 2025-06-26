@@ -102,38 +102,30 @@ void Receiver::__HandlePacket(const asio::ip::udp::endpoint& sender_endpoint, ui
   NetworkToHost(&header);
   
   if (assembling_queue_.empty()
-      || (/*assembling_queue_.front().first < header.id &&*/
-         !assembling_queue_.find(header.id) && 
+      || (!assembling_queue_.find(header.id) && 
          header.transmission_type == 0)) {
     
     // Buffering
     while (!dropped_queue_.empty()) {
       const std::pair<uint32_t, uint8_t*> dropped = dropped_queue_.front();
       dropped_queue_.pop();
-      //std::cout << "Drop frame " << dropped.first << std::endl;
       assembling_queue_.erase(dropped.first);
-      //std::cout << " >> drop frame " << dropped.first << " from queue" << std::endl;
       data_pool_.Release(dropped.second);
-      //std::cout << " >> drop frame " << dropped.first << " from data pool" << std::endl;
     }
 
     uint8_t* data_pool_starting = data_pool_.Acquire();
     
     if (data_pool_starting) {
-      // std::lock_guard<std::mutex> lock(assembling_queue_push_mutex_);
-
       auto frame_ptr = std::make_shared<ReceivingFrame>(
         io_context_, 
         sender_endpoint, 
         header.id, 
         header.total_chunks, 
         data_pool_starting, 
-        // data_pool_.BLOCK_SIZE,
         PAYLOAD, 
         std::bind(&Receiver::__RequestResend, this, std::placeholders::_1, std::placeholders::_2), 
         std::bind(&Receiver::__FrameGrabbed, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), 
         [this](const uint32_t id, uint8_t* data) { // Dropped callback
-          //std::cout << "Frame " << id << " dropped" << std::endl;
           dropped_queue_.push({id, data});
           dropped_count_++;
         }
@@ -142,12 +134,8 @@ void Receiver::__HandlePacket(const asio::ip::udp::endpoint& sender_endpoint, ui
       // Push new frame
       assembling_queue_.push_back(header.id, frame_ptr);
       
-      //std::cout << "Recv(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks << " >> New" << std::endl;
-
       // Push chunk to the frame
-      //std::cout << " >> Before Add Chunk";
       frame_ptr->AddChunk(header, recv_buf + CHUNKHEADER_SIZE);
-      //std::cout << " >> After Add Chunk";
     } else {
       // Buffer is full, drop packet
       std::cerr << "Receive error: Buffer overflow; bigger buffer_size is required" << std::endl;
@@ -155,41 +143,23 @@ void Receiver::__HandlePacket(const asio::ip::udp::endpoint& sender_endpoint, ui
   } else {
     auto* frame_ptr = assembling_queue_.find(header.id);
     if (frame_ptr && *frame_ptr && !(*frame_ptr)->IsTimeout() && !(*frame_ptr)->IsChunkAdded(header.chunk_index)) {
-
       // Push chunk to the frame
       (*frame_ptr)->AddChunk(header, recv_buf + CHUNKHEADER_SIZE);
-      
-      //std::cout << "Recv(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks << " >> Exist" << std::endl;
     } else {
-      //std::cout << "Drop packet";
+      // Drop packet
     }
   }
-  // std::cout << " / buf=" << assembling_queue_.size() << std::endl;
 }
 
 void Receiver::__RequestResend(const ChunkHeader header, const asio::ip::udp::endpoint endpoint) {
   const ChunkHeader n_header = HostToNetwork(header);
   uint8_t* data = resend_pool_.Acquire();
   std::memcpy(data, &n_header, CHUNKHEADER_SIZE);
-  /*
-  socket_->async_send_to(
-    asio::buffer(data, CHUNKHEADER_SIZE), 
-    endpoint, 
-    [this, data, header](const std::error_code& error, std::size_t bytes_transferred) { 
-      std::cout << "Send resend(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks << std::endl;
-      if (error) {
-        std::cerr << "Send request error(" << error << "): " << error.message() << std::endl;
-      }
-      resend_pool_.Release(data); 
-    }
-  );
-  */
   try {
     size_t len = socket_->send_to(
       asio::buffer(data, CHUNKHEADER_SIZE), 
       endpoint
     );
-    //std::cout << "Requested #" << header.id << "'s " << (header.chunk_index + 1) << " / " << header.total_chunks << std::endl;
   } catch (const std::error_code& error) {
     if (error) {
       std::cerr << "Send request error(" << error << "): " << error.message() << std::endl;
@@ -205,17 +175,14 @@ void Receiver::__FrameGrabbed(const uint32_t id, uint8_t* data, const size_t siz
   assembled_count_++;
   if (grabbed_) {
     std::vector<uint8_t> buffer(data, data + size);
-    //std::cout << "Received #" << id << ", size: " << size << std::endl;
     grabbed_(
       std::move(buffer), 
       [this, id, data]() { // Delegate responsibility for freeing buffers to the user 
-        //std::cout << "  (" << id << ") is released by user." << std::endl;
         assembling_queue_.erase(id); // Release assembling_queue_
         data_pool_.Release(data);
       }
     );
   } else {
-    //std::cout << "  (" << id << ") is released by system." << std::endl;
     assembling_queue_.erase(id);
     data_pool_.Release(data);
   }

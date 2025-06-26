@@ -7,7 +7,7 @@
 namespace chunkstream {
 
 template <class T> const T& min (const T& a, const T& b) {
-  return !(b<a)?a:b;
+  return !(b < a) ? a : b;
 }
 
 Sender::Sender(const std::string& ip, const int port, 
@@ -47,7 +47,6 @@ Sender::Sender(const std::string& ip, const int port,
       }
     }
     
-    //std::cout << "Sender Constructor completed successfully" << std::endl;
   }
   catch (const std::exception& e) {
     std::cerr << "Sender construction failed: " << e.what() << std::endl;
@@ -101,8 +100,6 @@ void Sender::Send(const uint8_t* data, const size_t size) {
 
     ChunkHeader n_header = HostToNetwork(header);
     
-    //std::cout << "Send(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks << std::endl;
-
     std::memcpy(packet, &n_header, CHUNKHEADER_SIZE);
     std::memcpy(packet + CHUNKHEADER_SIZE, data + (i * PAYLOAD), header.chunk_size);
     {
@@ -113,7 +110,6 @@ void Sender::Send(const uint8_t* data, const size_t size) {
         ), 
         ENDPOINT, 
         [this, frame](const std::error_code& error, std::size_t bytes_transferred) { 
-          //std::cout << "Send.async_send_to Bytes transferred: " << bytes_transferred << ", msg=" << error.message() << std::endl;
           if (error) {
             std::cerr << "Send error(" << error << "): " << error.message() << std::endl;
           }
@@ -121,26 +117,8 @@ void Sender::Send(const uint8_t* data, const size_t size) {
           frame->ref_count--; 
         }
       );
-      /*
-      // sync 
-      try {
-        size_t sent = socket_->send_to(
-          asio::buffer(
-            packet, CHUNKHEADER_SIZE + static_cast<size_t>(header.chunk_size)
-          ), 
-          ENDPOINT
-        );
-        std::cout << "Send succeed: " << sent << "bytes" << std::endl;
-        std::lock_guard<std::mutex> lock(frame->ref_count_lock);
-        frame->ref_count--;
-      } catch (const std::error_code& error){
-        std::cerr << "Send error(" << error << "): " << error.message() << std::endl;
-      }
-      */
     }
   }
-  
-  //std::cout << "Sent #" << header.id << ", size: " << size << std::endl;
 }
 
 void Sender::Start() {
@@ -164,7 +142,6 @@ void Sender::__Receive() {
           std::cerr << "Receive error(" << error_code << "): " << error.message() << std::endl;
         }
       }
-      // std::cerr << "Receive error(" << error << "): " << error.message() << std::endl;
       if (!error && bytes_transferred >= CHUNKHEADER_SIZE) {
         ChunkHeader header;
         std::memcpy(&header, recv_buffer_.data(), CHUNKHEADER_SIZE);
@@ -195,12 +172,9 @@ void Sender::__HandlePacket(ChunkHeader header) {
       int mid = left + (right - left) / 2;
       
       if (buffer_[mid]->id == header.id) {
-        // std::cout << "Found resend frame header_id=" << buffer_[mid]->id << ", ref_count=" << buffer_[mid]->ref_count << std::endl;
-        // if (buffer_[mid]->ref_count > 0) {
-          frame = buffer_[mid].get();
-          std::lock_guard<std::mutex> lock(frame->ref_count_lock);
-          frame->ref_count++;
-        // }
+        frame = buffer_[mid].get();
+        std::lock_guard<std::mutex> lock(frame->ref_count_lock);
+        frame->ref_count++;
         break;
       }
       
@@ -237,56 +211,12 @@ void Sender::__HandlePacket(ChunkHeader header) {
   // Overwrite chunk header (for changed type to "RESEND")
   std::memcpy(frame->chunks[header.chunk_index].data(), &n_header, CHUNKHEADER_SIZE);
 
-  /*
-  socket_->async_send_to(
-    asio::buffer(
-      frame->chunks[header.chunk_index].data(), CHUNKHEADER_SIZE + header.chunk_size
-    ), 
-    ENDPOINT, 
-    [this, frame](const std::error_code& error, std::size_t bytes_transferred) { 
-      std::lock_guard<std::mutex> lock(frame->ref_count_lock);
-      frame->ref_count--; 
-    }
-  );
-  */
-
   try {
-    /*
-    std::cout << "Resend(" << header.id << "): " << (header.chunk_index + 1) << " / " << header.total_chunks; 
     const size_t len = socket_->send_to(
-      asio::buffer(frame->chunks[header.chunk_index].data(), CHUNKHEADER_SIZE + static_cast<size_t>(frame->headers[header.chunk_index].chunk_size)), 
+      asio::buffer(frame->chunks[header.chunk_index].data(), 
+                  CHUNKHEADER_SIZE + header.chunk_size), 
       ENDPOINT
     );
-    std::cout << " bytes:" << len << std::endl;
-    */
-   //std::cout << "Resent #" << header.id << "'s " << (header.chunk_index + 1) << " / " << header.total_chunks;
-    
-    /*
-    // 🔍 디버깅 정보 추가
-    std::cout << "\nDEBUG: chunk_size=" << frame->headers[header.chunk_index].chunk_size 
-              << ", chunks.size()=" << frame->chunks.size()
-              << ", chunk_index=" << (header.chunk_index + 1) << std::endl;
-    
-    // 🔍 버퍼 유효성 확인
-    if (header.chunk_index >= frame->chunks.size()) {
-        std::cerr << "ERROR: Invalid chunk_index!" << std::endl;
-        return;
-    }
-    
-    // 🔍 소켓 상태 확인
-    if (!socket_->is_open()) {
-        std::cerr << "ERROR: Socket is closed!" << std::endl;
-        return;
-    }
-    */
-    
-    const size_t len = socket_->send_to(
-        asio::buffer(frame->chunks[header.chunk_index].data(), 
-                    CHUNKHEADER_SIZE + header.chunk_size), 
-        ENDPOINT
-    );
-    
-    //std::cout << " ~sent:" << len << std::endl;
   } catch (const std::error_code& error) {
     std::cerr << "Resend error(" << error << "): " << error.message() << std::endl;
   }

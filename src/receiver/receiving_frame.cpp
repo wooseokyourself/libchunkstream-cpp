@@ -50,19 +50,12 @@ bool ReceivingFrame::IsTimeout() {
 
 // @data should be `recv_buffer_.data() + CHUNKHEADER_SIZE`
 void ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data) {
-  //std::cout << "ReceivingFrame::AddChunk 0" << std::endl;
   bool all_chunk_added = true;
   {
     std::lock_guard<std::mutex> lock(chunk_bitmap_mutex_);
-    //std::cout << "ReceivingFrame::AddChunk 0-1" << std::endl;
-    
     assert(header.chunk_index < chunk_bitmap_.size());
-    //std::cout << "ReceivingFrame::AddChunk 0-2" << std::endl;
-
     chunk_bitmap_[header.chunk_index] = true;
-    //std::cout << "ReceivingFrame::AddChunk 0-3" << std::endl;
     chunk_headers_[header.chunk_index] = header;
-    //std::cout << "ReceivingFrame::AddChunk 0-4" << std::endl;
 
     // Check all chunks are added
     for (int i = chunk_bitmap_.size() - 1; i >= 0; i--) {
@@ -71,21 +64,19 @@ void ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data) {
         break;
       }
     }
-    
   }
-  //std::cout << "ReceivingFrame::AddChunk 1" << std::endl;
+
   assert(data != nullptr);
   assert(data_ != nullptr);
   assert((data_ + (header.chunk_index * BLOCK_SIZE)) != nullptr);
   assert((data + header.chunk_size - 1) != nullptr);
   assert((data_ + (header.chunk_index * BLOCK_SIZE) + header.chunk_size - 1) != nullptr);
-  //std::cout << "ReceivingFrame::AddChunk 1-1, header.chunk_size=" << header.chunk_size << std::endl;
+
   std::memcpy(
     data_ + (header.chunk_index * BLOCK_SIZE),
     data, 
     header.chunk_size
   );
-  //std::cout << "ReceivingFrame::AddChunk 2" << std::endl;
 
   if (all_chunk_added) {
     status_ = READY;
@@ -95,11 +86,8 @@ void ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data) {
     __SendAssembledCallback(ID, data_, header.total_size);
   } else {
     if (header.transmission_type == 0 && !request_resend_) { // type == INIT
-      //std::cout << "ReceivingFrame::AddChunk 3-1-1" << std::endl;
       init_chunk_timer_.cancel();
-      //std::cout << "ReceivingFrame::AddChunk 3-1-2" << std::endl;
       init_chunk_timer_.expires_after(INIT_CHUNK_TIMEOUT);
-      //std::cout << "ReceivingFrame::AddChunk 3-1-3" << std::endl;
       init_chunk_timer_.async_wait([this, header](const std::error_code& error) {
         if (error) {
           if (
@@ -131,10 +119,8 @@ void ReceivingFrame::AddChunk(const ChunkHeader& header, uint8_t* data) {
         // Start resend requesting
         __RequestResend(header.id); // Recursively call
       });
-      //std::cout << "ReceivingFrame::AddChunk 3-1-4" << std::endl;
     } else { // type == RESEND
       // nothing
-      //std::cout << "ReceivingFrame::AddChunk 3-2-1" << std::endl;
     }
   }
 }
