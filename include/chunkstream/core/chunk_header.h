@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Wooseok Choi
+// Licensed under the MIT License - see LICENSE file
+
 #ifndef CHUNKSTREAM_CORE_CHUNK_HEADER_H_
 #define CHUNKSTREAM_CORE_CHUNK_HEADER_H_
 
@@ -9,11 +12,11 @@
 namespace chunkstream {
 
 struct ChunkHeader {
-  uint32_t id;                // 원본 데이터 ID
-  uint32_t total_size;        // 원본 데이터 전체 크기
-  uint16_t total_chunks;      // 전체 청크 개수
-  uint16_t chunk_index;       // 청크 순서 (0부터)
-  uint32_t chunk_size;        // 실제 데이터 크기
+  uint32_t id;                // Original data ID
+  uint32_t total_size;        // Total size of original data
+  uint16_t total_chunks;      // Total number of chunks
+  uint16_t chunk_index;       // Chunk sequence number (starting from 0)
+  uint32_t chunk_size;        // Actual data size in this chunk
   uint16_t transmission_type; // 0: INIT | 1: RESEND
 };
 

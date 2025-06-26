@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Wooseok Choi
+// Licensed under the MIT License - see LICENSE file
+
 #ifdef _WIN32
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0601  // Windows 7
@@ -384,7 +387,8 @@ void PrintReceiverStats(const Receiver* receiver = nullptr) {
                   << " | " << mbps << " MB/s"
                   << " | " << Console::RED << "Dropped: " << frames_dropped 
                   << " (" << drop_rate << "%)"
-                  << " | Corrupt: (" << corruption_rate << "%)" << Console::RESET;
+                  << " | Corrupt: " << receiver_stats.frames_corrupted
+                  << "(" << corruption_rate << "%)" << Console::RESET;
         std::cout.flush();
     }
 }

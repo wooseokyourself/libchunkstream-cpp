@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Wooseok Choi
+// Licensed under the MIT License - see LICENSE file
+
 #include "chunkstream/receiver/memory_pool.h"
 
 namespace chunkstream {

@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Wooseok Choi
+// Licensed under the MIT License - see LICENSE file
+
 #include "chunkstream/receiver.h"
 #include <iostream>
 
@@ -22,7 +25,6 @@ Receiver::Receiver(const int port,
       *io_context_, 
       asio::ip::udp::endpoint(asio::ip::udp::v4(), port)
     );
-    threads_ = std::make_shared<ThreadPool>(std::thread::hardware_concurrency());
   } catch (const std::exception& e) {
     std::cerr << "Error initializing Receiver: " << e.what() << std::endl;
     throw;
@@ -80,7 +82,6 @@ void Receiver::__Receive() {
         std::cerr << "Receive error(" << error << "): " << error.message() << std::endl;
       }
       if (!error && bytes_transferred >= CHUNKHEADER_SIZE) {
-        // threads_->Enqueue([this, recv_buf]() { __HandlePacket(recv_buf); });
         try {
           __HandlePacket(remote_endpoint_, recv_buf);
         } catch (const std::error_code& error) {

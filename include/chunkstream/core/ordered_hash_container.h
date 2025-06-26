@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Wooseok Choi
+// Licensed under the MIT License - see LICENSE file
+
 #ifndef CHUNKSTREAM_CORE_ORDERED_HASH_CONTAINER_H_
 #define CHUNKSTREAM_CORE_ORDERED_HASH_CONTAINER_H_
 

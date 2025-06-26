@@ -1,10 +1,12 @@
+// Copyright (c) 2025 Wooseok Choi
+// Licensed under the MIT License - see LICENSE file
+
 #ifndef CHUNKSTREAM_SENDER_H_
 #define CHUNKSTREAM_SENDER_H_
 
 #include <string>
 #include <asio.hpp>
 #include "chunkstream/core/chunk_header.h"
-#include "chunkstream/core/thread_pool.h"
 
 namespace chunkstream {
 
@@ -47,8 +49,6 @@ private:
   std::atomic_int buffer_index_;
   std::mutex buffering_mutex_;
   std::atomic<uint32_t> id_;
-  
-  std::shared_ptr<ThreadPool> threads_;
 };
 
 }

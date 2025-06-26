@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Wooseok Choi
+// Licensed under the MIT License - see LICENSE file
+
 #include "chunkstream/sender.h"
 #include <iostream>
 
@@ -24,8 +27,6 @@ Sender::Sender(const std::string& ip, const int port,
       asio::ip::udp::v4()
     );
     socket_->bind(asio::ip::udp::endpoint(asio::ip::udp::v4(), 0)); // OS automatically allocates port
-    
-    threads_ = std::make_shared<ThreadPool>(std::thread::hardware_concurrency());
     
     if (max_data_size > 0) {
       const int total_chunks = (max_data_size + PAYLOAD - 1) / PAYLOAD;

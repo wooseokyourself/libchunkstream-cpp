@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Wooseok Choi
+// Licensed under the MIT License - see LICENSE file
+
 #ifndef CHUNKSTREAM_RECEIVER_RECEIVING_FRAME_H_
 #define CHUNKSTREAM_RECEIVER_RECEIVING_FRAME_H_
 

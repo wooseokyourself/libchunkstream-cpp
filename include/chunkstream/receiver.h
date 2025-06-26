@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Wooseok Choi
+// Licensed under the MIT License - see LICENSE file
+
 #ifndef CHUNKSTREAM_RECEIVER_H_
 #define CHUNKSTREAM_RECEIVER_H_
 
@@ -5,7 +8,6 @@
 #include <functional>
 #include "chunkstream/receiver/receiving_frame.h"
 #include "chunkstream/core/chunk_header.h"
-#include "chunkstream/core/thread_pool.h"
 #include "chunkstream/core/ordered_hash_container.h"
 #include "chunkstream/receiver/memory_pool.h"
 
@@ -61,8 +63,6 @@ private:
 
   OrderedHashContainer<uint32_t, std::shared_ptr<ReceivingFrame> > assembling_queue_;
   std::mutex assembling_queue_push_mutex_;
-
-  std::shared_ptr<ThreadPool> threads_;
 
   std::atomic<size_t> assembled_count_ = 0;
   std::atomic<size_t> dropped_count_ = 0;
