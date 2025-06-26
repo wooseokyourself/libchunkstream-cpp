@@ -6,6 +6,7 @@
 
 #include <asio.hpp>
 #include <functional>
+#include <queue>
 #include "chunkstream/receiver/receiving_frame.h"
 #include "chunkstream/core/chunk_header.h"
 #include "chunkstream/core/ordered_hash_container.h"

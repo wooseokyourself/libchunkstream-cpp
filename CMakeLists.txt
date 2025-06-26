@@ -42,7 +42,6 @@ message(STATUS "Asio found: ${Asio_FOUND}")
 # Core source files
 set(CORE_SOURCES
     src/core/chunk_header.cpp
-    src/core/thread_pool.cpp
 )
 
 # Receiver source files
@@ -63,7 +62,6 @@ set(SENDER_SOURCES
 set(CORE_HEADERS
     include/chunkstream/core/chunk_header.h
     include/chunkstream/core/ordered_hash_container.h
-    include/chunkstream/core/thread_pool.h
 )
 
 # Receiver header files
