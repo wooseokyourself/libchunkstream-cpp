@@ -1,12 +1,11 @@
 # ChunkStream Library
 
-ChunkStream is a high-performance C++ library for reliable UDP-based data streaming with automatic chunking and reassembly. It provides robust mechanisms for transmitting large data frames over UDP with built-in error detection, retransmission, and data integrity verification.
+ChunkStream is a high-performance C++ library for reliable UDP-based data streaming with automatic chunking and reassembly. It provides robust mechanisms for transmitting large data frames over UDP with built-in error detection, retransmission.
 
 ## Features
 
 - **Large Data Frame Transmission**: Automatically chunks large data into UDP-sized packets and reassembles them at the receiver
 - **Reliable UDP Communication**: Built-in packet loss detection and automatic retransmission requests
-- **Data Integrity Verification**: Comprehensive checksum validation and byte-level data verification
 - **High Performance**: Optimized for low-latency, high-throughput data streaming
 - **Memory Pool Management**: Efficient memory allocation with pre-allocated buffer pools
 - **Thread Safety**: Multi-threaded design with thread pool for concurrent packet processing
