@@ -1,31 +1,30 @@
-# PropLink Library
+# ChunkStream Library
 
-PropLink is a C++ client-server communication library via ZeroMQ. It provides a robust mechanism for sharing variables and triggers between processes with minimal setup. The communication protocols following have been tested:
-- TCP for Windows, Linux
-- IPC for Linux
+ChunkStream is a high-performance C++ library for reliable UDP-based data streaming with automatic chunking and reassembly. It provides robust mechanisms for transmitting large data frames over UDP with built-in error detection, retransmission, and data integrity verification.
 
 ## Features
 
-- **Bidirectional Variable Sharing**: Share variables between client and server with automatic type handling (string, double, int, bool)
-- **Trigger Mechanisms**: Register and execute triggers remotely
-- **Asynchronous & Synchronous Communication**: Choose between blocking and non-blocking operation modes
-- **Thread Safety**: Built-in thread pool and mutex protection for concurrent access
-- **Automatic Reconnection**: Clients automatically attempt to reconnect on connection failure
-- **Notification System**: Subscribe to variable changes with callback functions
-- **Read-Only Protection**: Server-side enforcement of read-only variables
+- **Large Data Frame Transmission**: Automatically chunks large data into UDP-sized packets and reassembles them at the receiver
+- **Reliable UDP Communication**: Built-in packet loss detection and automatic retransmission requests
+- **Data Integrity Verification**: Comprehensive checksum validation and byte-level data verification
+- **High Performance**: Optimized for low-latency, high-throughput data streaming
+- **Memory Pool Management**: Efficient memory allocation with pre-allocated buffer pools
+- **Thread Safety**: Multi-threaded design with thread pool for concurrent packet processing
+- **Configurable Parameters**: Adjustable MTU size, buffer sizes, and timeout settings
+- **Real-time Monitoring**: Built-in statistics tracking for performance analysis
 
 ## Core Concepts
 
-- **Variables**: Named values that can be shared between client and server
-- **Triggers**: Named events that can be triggered by clients and handled by the server
-- **Callbacks**: Functions that are executed when variables change or triggers are executed
+- **Sender**: Transmits large data frames by splitting them into UDP packets with sequence information
+- **Receiver**: Receives UDP packets, reassembles them into original data frames, and requests retransmission for missing packets
+- **Chunks**: Individual UDP packets containing part of a larger data frame with header information
+- **Memory Pools**: Pre-allocated memory buffers for efficient packet and frame management
 
 ## Requirements
 
 - C++17 compiler
 - CMake 3.10 or higher
-- Protocol Buffers 3.6.x or higher
-- ZeroMQ 4.3+ and cppzmq
+- ASIO library (standalone or Boost.ASIO)
 
 ## Building the Library
 
@@ -34,30 +33,21 @@ PropLink is a C++ client-server communication library via ZeroMQ. It provides a 
 1. Install prerequisites:
    - Visual Studio 2019 or later
    - CMake 3.10+
-    ```powershell
-    vcpkg install protobuf:x64-windows-static
-    vcpkg install zeromq:x64-windows-static
-    vcpkg install cppzmq:x64-windows-static
-    ```
+   ```powershell
+   vcpkg install asio:x64-windows
+   ```
 
 2. Clone the repository:
    ```powershell
-   git clone https://github.com/HILLAB-Software/libproplink-cpp.git
-   cd libproplink-cpp
+   git clone https://github.com/your-org/libchunkstream-cpp.git
+   cd libchunkstream-cpp
    ```
 
-3. Generate protobuf files and move them to the correct directories(run from the libproplink-cpp project root):
-   ```powershell
-    protoc.exe --cpp_out=. property.proto
-    mv property.pb.cc src/property.pb.cc
-    mv property.pb.h include/proplink/property.pb.h
-   ```
-
-4. Build the library:
+3. Build the library:
    ```powershell
    mkdir build
    cd build
-   cmake .. 
+   cmake .. -DCMAKE_TOOLCHAIN_FILE=[vcpkg root]/scripts/buildsystems/vcpkg.cmake
    cmake --build . --config Release
    cmake --build . --config Debug
    ```
@@ -67,23 +57,16 @@ PropLink is a C++ client-server communication library via ZeroMQ. It provides a 
 1. Install prerequisites:
    ```bash
    sudo apt-get update
-   sudo apt-get install build-essential cmake libprotobuf-dev protobuf-compiler libzmq3-dev
+   sudo apt-get install build-essential cmake libasio-dev
    ```
 
 2. Clone the repository:
    ```bash
-   git clone https://github.com/HILLAB-Software/libproplink-cpp.git
-   cd libproplink-cpp
+   git clone https://github.com/your-org/libchunkstream-cpp.git
+   cd libchunkstream-cpp
    ```
 
-3. Generate protobuf files and move them to the correct directories(run from the libproplink-cpp project root):
-   ```bash
-    protoc --cpp_out=. property.proto
-    mv property.pb.cc src/property.pb.cc
-    mv property.pb.h include/proplink/property.pb.h
-   ```
-
-4. Build the library:
+3. Build the library:
    ```bash
    mkdir build
    cd build
@@ -91,133 +74,207 @@ PropLink is a C++ client-server communication library via ZeroMQ. It provides a 
    make
    ```
 
-5. Install the library (optional):
+4. Install the library (optional):
    ```bash
    sudo make install
    ```
    This will install the library and headers to your system directories, typically under `/usr/local/`.
 
 ## Basic Usage
-The endpoint follows ZeroMQ's Socket API. For example,
+
+### Sender Example
+
 ```cpp
-#ifdef _WIN32
-  Server server("tcp://127.0.0.1:5555", "tcp://127.0.0.1:5556");
-#else
-  Server server("ipc:///tmp/server1", "ipc:///tmp/server2");
-#endif
-
-#ifdef _WIN32
-  Client client("tcp://192.168.56.100:5555", "tcp://192.168.56.100:5556");
-#else
-  Client client("ipc:///tmp/server1", "ipc:///tmp/server2");
-#endif
-```
-
-
-### Server Example
-```cpp
-#include "libproplink/server.h"
+#include "chunkstream/sender.h"
+#include <vector>
+#include <iostream>
 
 int main() {
-    // Create server with endpoints
-    proplink::Server server("tcp://127.0.0.1:5555", "tcp://127.0.0.1:5556");
+    // Create sender with target IP, port, and optional parameters
+    chunkstream::Sender sender("192.168.1.100", 5555, 1500, 50, 10485760);
     
-    // Register a variable with a callback function
-    server.RegisterVariable(proplink::Variable("temperature", 25.0), 
-        [](const proplink::Value& value) {
-            std::cout << "Temperature changed to: " << std::get<double>(value) << std::endl;
-        });
-    
-    // Register a trigger with a callback function
-    server.RegisterTrigger("refresh", []() {
-        std::cout << "Refresh trigger executed" << std::endl;
+    // Start sender in background thread
+    std::thread sender_thread([&sender]() {
+        sender.Start();
     });
     
-    // Start the server
-    server.Start();
+    // Prepare data to send
+    std::vector<uint8_t> large_data(5000000);  // 5MB data
+    // Fill with your data...
     
-    // Main application loop
-    while(running) {
-        // Update server-side variables as needed
-        server.SetVariable("temperature", 26.5);
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+    // Send data frame
+    sender.Send(large_data.data(), large_data.size());
+    
+    std::cout << "Data sent successfully" << std::endl;
+    
+    // Cleanup
+    sender.Stop();
+    if (sender_thread.joinable()) {
+        sender_thread.join();
     }
-    
-    // Stop the server when done
-    server.Stop();
     
     return 0;
 }
 ```
 
-### Client Example
+### Receiver Example
 
 ```cpp
-#include "libproplink/client.h"
+#include "chunkstream/receiver.h"
+#include <iostream>
+#include <vector>
 
 int main() {
-    // Create client with same endpoints as server
-    proplink::Client client("tcp://127.0.0.1:5555", "tcp://127.0.0.1:5556");
+    // Data reception callback
+    auto onDataReceived = [](const std::vector<uint8_t>& data, std::function<void()> release) {
+        std::cout << "Received data frame of size: " << data.size() << " bytes" << std::endl;
+        
+        // Process your data here...
+        
+        // Important: Call release when done processing
+        release();
+    };
     
-    // Connect to server
-    if (!client.Connect()) {
-        std::cerr << "Failed to connect to server" << std::endl;
-        return 1;
-    }
+    // Create receiver with port and callback
+    chunkstream::Receiver receiver(5555, onDataReceived, 1500, 50, 10485760);
     
-    // Register callback for variable changes
-    client.RegisterCallback("temperature", [](const proplink::Value& value) {
-        std::cout << "Received temperature update: " << std::get<double>(value) << std::endl;
-    });
+    std::cout << "Starting receiver on port 5555..." << std::endl;
     
-    // Get a variable synchronously
-    proplink::Value temp = client.GetVariable("temperature");
-    if (std::holds_alternative<double>(temp)) {
-        std::cout << "Current temperature: " << std::get<double>(temp) << std::endl;
-    }
-    
-    // Set a variable asynchronously
-    client.SetVariable("temperature", 27.5, proplink::AsyncConnection,
-        [](const proplink::ResponseMessage& resp) {
-            if (resp.success()) {
-                std::cout << "Temperature update successful" << std::endl;
-            }
-        });
-    
-    // Execute a trigger synchronously
-    client.ExecuteTrigger("refresh", proplink::SyncConnection,
-        [](const proplink::ResponseMessage& resp) {
-            if (resp.success()) {
-                std::cout << "Refresh trigger executed successfully" << std::endl;
-            }
-        });
-    
-    // Disconnect when done
-    client.Disconnect();
+    // Start receiver (blocking call)
+    receiver.Start();
     
     return 0;
 }
 ```
 
-## Connection Options
+### Advanced Configuration
 
-- **SyncConnection**: Blocks until the server responds (synchronous mode)
-- **AsyncConnection**: Doesn't wait for server response and returns immediately (asynchronous mode)
+```cpp
+// Sender with custom parameters
+chunkstream::Sender sender(
+    "192.168.1.100",    // Target IP
+    5555,               // Target port
+    9000,               // MTU size (jumbo frames)
+    100,                // Buffer size (number of concurrent frames)
+    50000000            // Maximum data size per frame (50MB)
+);
 
-## Advanced Features
+// Receiver with custom parameters
+chunkstream::Receiver receiver(
+    5555,               // Listen port
+    callback,           // Data received callback
+    9000,               // MTU size
+    100,                // Buffer size
+    50000000            // Maximum data size per frame
+);
+```
 
-### Thread Pool
+## Configuration Parameters
 
-PropLink uses a thread pool for handling server-side requests, allowing for parallel processing of client commands without blocking the main communication loop.
+| Parameter | Description | Default | Recommended Range |
+|-----------|-------------|---------|-------------------|
+| **MTU** | Maximum Transmission Unit size | 1500 | 1500-9000 |
+| **Buffer Size** | Number of concurrent frames in memory | 10 | 10-100 |
+| **Max Data Size** | Maximum size per data frame | 0 (unlimited) | 1MB-100MB |
+| **Port** | UDP port for communication | User-defined | 1024-65535 |
 
-### Error Handling
+## Performance Tuning
 
-The library includes robust error handling with detailed error messages for debugging. All operations return a success/failure status, and error messages are provided in the response.
+### For Low Latency
+```cpp
+// Small MTU, frequent transmission
+chunkstream::Sender sender(ip, port, 1500, 10, max_size);
+```
 
-### Reconnection Logic
+### For High Throughput
+```cpp
+// Large MTU (if network supports), larger buffers
+chunkstream::Sender sender(ip, port, 9000, 100, max_size);
+```
 
-Clients automatically attempt to reconnect on connection failures with an exponential backoff strategy.
+### Memory Optimization
+```cpp
+// Smaller buffer sizes for memory-constrained environments
+chunkstream::Receiver receiver(port, callback, 1500, 20, 5000000);
+```
+
+## Error Handling and Monitoring
+
+```cpp
+// Monitor transmission statistics
+std::cout << "Frames received: " << receiver.GetFrameCount() << std::endl;
+std::cout << "Frames dropped: " << receiver.GetDropCount() << std::endl;
+
+// Flush pending frames (cleanup)
+receiver.Flush();
+```
+
+## Data Integrity Testing
+
+The library includes a comprehensive test application for data integrity verification:
+
+```bash
+# Run integrated sender/receiver test with data verification
+./chunkstream_example both
+
+# Run sender only
+./chunkstream_example sender
+
+# Run receiver only  
+./chunkstream_example receiver
+```
+
+The test application provides:
+- Real-time performance statistics
+- Data integrity verification
+- Packet loss analysis
+- Latency measurements
+
+## Thread Safety
+
+ChunkStream is designed for multi-threaded environments:
+
+- **Thread Pool**: Automatic work distribution across available CPU cores
+- **Memory Pools**: Thread-safe memory allocation and deallocation
+- **Atomic Counters**: Lock-free statistics tracking
+- **Mutex Protection**: Critical sections properly protected
+
+## Network Considerations
+
+### Firewall Settings
+Ensure UDP traffic is allowed on your chosen ports:
+
+```bash
+# Linux (iptables)
+sudo iptables -A INPUT -p udp --dport 5555 -j ACCEPT
+
+# Windows (PowerShell as Administrator)
+New-NetFirewallRule -DisplayName "ChunkStream" -Direction Inbound -Protocol UDP -LocalPort 5555 -Action Allow
+```
+
+### Network Performance
+- **Jumbo Frames**: Use MTU 9000 for high-speed networks
+- **Buffer Tuning**: Increase system UDP buffer sizes for high-throughput applications
+- **CPU Affinity**: Consider pinning threads to specific CPU cores for consistent performance
+
+## Troubleshooting
+
+### Common Issues
+
+1. **High Packet Loss**
+   - Reduce MTU size
+   - Increase buffer sizes
+   - Check network capacity
+
+2. **Memory Issues**
+   - Reduce buffer_size parameter
+   - Implement proper release() callback handling
+   - Monitor memory usage with system tools
+
+3. **Performance Issues**
+   - Enable compiler optimizations (-O3)
+   - Use Release build configuration
+   - Consider network hardware limitations
 
 ## License
-
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 - see the LICENSE file for details.
