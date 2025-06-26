@@ -17,18 +17,23 @@
 #include <queue>
 #include <algorithm>
 #include <numeric>
+#include <string>
 
 #include "chunkstream/sender.h"
 #include "chunkstream/receiver.h"
 
 using namespace chunkstream;
 
-// Test configuration
-constexpr int TEST_PORT = 56343;
+// Default test configuration
+constexpr int DEFAULT_TEST_PORT = 56343;
 constexpr int TEST_MTU = 1500;
 constexpr size_t TEST_BUFFER_SIZE = 100;
 constexpr size_t MAX_DATA_SIZE = 2464 * 2064; // 5.09MB
-const std::string TEST_IP = "127.0.0.1";
+const std::string DEFAULT_TEST_IP = "127.0.0.1";
+
+// Global configuration (will be set by command line arguments)
+std::string TEST_IP = DEFAULT_TEST_IP;
+int TEST_PORT = DEFAULT_TEST_PORT;
 
 // Data integrity verification structures
 struct DataFrameInfo {
@@ -95,6 +100,100 @@ namespace Console {
     const std::string BOLD = "\033[1m";
 }
 
+// Command line argument parsing
+struct CommandLineArgs {
+    std::string mode = "both";
+    std::string host = DEFAULT_TEST_IP;
+    int port = DEFAULT_TEST_PORT;
+    bool help = false;
+};
+
+// Parse command line arguments
+CommandLineArgs ParseArguments(int argc, char* argv[]) {
+    CommandLineArgs args;
+    
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        
+        if (arg == "--help" || arg == "-h") {
+            args.help = true;
+        }
+        else if (arg == "--host") {
+            if (i + 1 < argc) {
+                args.host = argv[++i];
+            } else {
+                std::cerr << "Error: --host requires a value" << std::endl;
+                args.help = true;
+            }
+        }
+        else if (arg == "--port") {
+            if (i + 1 < argc) {
+                try {
+                    args.port = std::stoi(argv[++i]);
+                    if (args.port <= 0 || args.port > 65535) {
+                        std::cerr << "Error: Port must be between 1 and 65535" << std::endl;
+                        args.help = true;
+                    }
+                } catch (const std::exception&) {
+                    std::cerr << "Error: Invalid port number" << std::endl;
+                    args.help = true;
+                }
+            } else {
+                std::cerr << "Error: --port requires a value" << std::endl;
+                args.help = true;
+            }
+        }
+        else if (arg == "sender" || arg == "receiver" || arg == "both") {
+            args.mode = arg;
+        }
+        else {
+            std::cerr << "Error: Unknown argument: " << arg << std::endl;
+            args.help = true;
+        }
+    }
+    
+    return args;
+}
+
+// Validate arguments based on mode
+bool ValidateArguments(const CommandLineArgs& args) {
+    if (args.mode == "sender") {
+        // Sender can use both --host and --port
+        return true;
+    }
+    else if (args.mode == "receiver" || args.mode == "both") {
+        // Receiver and both can only use --port, host should be default
+        if (args.host != DEFAULT_TEST_IP) {
+            std::cerr << "Error: --host option is only available for sender mode" << std::endl;
+            return false;
+        }
+        return true;
+    }
+    
+    std::cerr << "Error: Invalid mode. Use sender, receiver, or both" << std::endl;
+    return false;
+}
+
+void PrintUsage(const char* program_name) {
+    std::cout << "Usage: " << program_name << " [MODE] [OPTIONS]" << std::endl;
+    std::cout << std::endl;
+    std::cout << "MODES:" << std::endl;
+    std::cout << "  sender   - Run as sender only" << std::endl;
+    std::cout << "  receiver - Run as receiver only" << std::endl;
+    std::cout << "  both     - Run both sender and receiver with data integrity verification (default)" << std::endl;
+    std::cout << std::endl;
+    std::cout << "OPTIONS:" << std::endl;
+    std::cout << "  --host HOST    Set target host IP (sender mode only, default: " << DEFAULT_TEST_IP << ")" << std::endl;
+    std::cout << "  --port PORT    Set port number (default: " << DEFAULT_TEST_PORT << ")" << std::endl;
+    std::cout << "  --help, -h     Show this help message" << std::endl;
+    std::cout << std::endl;
+    std::cout << "EXAMPLES:" << std::endl;
+    std::cout << "  " << program_name << " sender --host 192.168.1.100 --port 8080" << std::endl;
+    std::cout << "  " << program_name << " receiver --port 8080" << std::endl;
+    std::cout << "  " << program_name << " both --port 9090" << std::endl;
+    std::cout << "  " << program_name << " both" << std::endl;
+}
+
 // Simple checksum calculation for data verification
 size_t CalculateChecksum(const std::vector<uint8_t>& data) {
     size_t checksum = 0;
@@ -137,8 +236,6 @@ bool VerifyDataIntegrity(const std::vector<uint8_t>& received_data, uint32_t exp
     uint32_t embedded_frame_id;
     std::memcpy(&embedded_frame_id, received_data.data(), sizeof(uint32_t));
     
-    //std::cout << "[VERIFY] Expected ID: " << expected_frame_id << ", Embedded ID: " << embedded_frame_id << std::endl;
-    
     if (embedded_frame_id != expected_frame_id) {
         std::cerr << "[VERIFY] Frame ID mismatch! Expected: " << expected_frame_id 
                   << ", Got: " << embedded_frame_id << std::endl;
@@ -172,7 +269,6 @@ bool VerifyDataIntegrity(const std::vector<uint8_t>& received_data, uint32_t exp
         return false;
     }
     
-    //std::cout << "[VERIFY] Frame " << expected_frame_id << " verified successfully" << std::endl;
     return true;
 }
 
@@ -189,15 +285,9 @@ void OnDataReceived(const std::vector<uint8_t>& data, std::function<void()> rele
         std::memcpy(&frame_id, data.data(), sizeof(uint32_t));
     }
     
-    // Debug: Print frame ID for verification
-    //std::cout << "[DEBUG] Received frame ID: " << frame_id << ", size: " << data.size() << std::endl;
-    
     // Verify data integrity
     bool is_valid = VerifyDataIntegrity(data, frame_id);
     size_t checksum = CalculateChecksum(data);
-    
-    // Debug: Print verification result
-    //std::cout << "[DEBUG] Frame " << frame_id << " verification: " << (is_valid ? "VALID" : "CORRUPTED") << std::endl;
     
     {
         std::lock_guard<std::mutex> lock(verification_mutex);
@@ -532,7 +622,7 @@ void CombinedTest() {
     PrintVerificationResults();
 }
 
-// Sender test thread (unchanged)
+// Sender test thread
 void SenderTest() {
     try {
         std::cout << "Starting sender on " << TEST_IP << ":" << TEST_PORT << std::endl;
@@ -588,7 +678,7 @@ void SenderTest() {
     }
 }
 
-// Receiver test thread (with basic verification)
+// Receiver test thread
 void ReceiverTest() {
     try {
         std::cout << "Starting receiver on port " << TEST_PORT << std::endl;
@@ -643,29 +733,30 @@ void ReceiverTest() {
     }
 }
 
-void PrintUsage(const char* program_name) {
-    std::cout << "Usage: " << program_name << " [sender|receiver|both]" << std::endl;
-    std::cout << "  sender   - Run as sender only" << std::endl;
-    std::cout << "  receiver - Run as receiver only" << std::endl;
-    std::cout << "  both     - Run both sender and receiver with data integrity verification (default)" << std::endl;
-}
-
 int main(int argc, char* argv[]) {
     std::cout << Console::BOLD << "ChunkStream Data Integrity Test Application" << Console::RESET << std::endl;
     std::cout << "=============================================" << std::endl;
     
-    std::string mode = "both";
-    if (argc > 1) {
-        mode = argv[1];
+    // Parse command line arguments
+    CommandLineArgs args = ParseArguments(argc, argv);
+    
+    if (args.help) {
+        PrintUsage(argv[0]);
+        return 0;
     }
     
-    if (mode != "sender" && mode != "receiver" && mode != "both") {
-        PrintUsage(argv[0]);
+    // Validate arguments
+    if (!ValidateArguments(args)) {
+        std::cerr << "\nUse --help for usage information." << std::endl;
         return 1;
     }
     
+    // Set global configuration from parsed arguments
+    TEST_IP = args.host;
+    TEST_PORT = args.port;
+    
     std::cout << "Test configuration:" << std::endl;
-    std::cout << "  Mode: " << mode << std::endl;
+    std::cout << "  Mode: " << args.mode << std::endl;
     std::cout << "  IP: " << TEST_IP << std::endl;
     std::cout << "  Port: " << TEST_PORT << std::endl;
     std::cout << "  MTU: " << TEST_MTU << std::endl;
@@ -673,17 +764,17 @@ int main(int argc, char* argv[]) {
     std::cout << "  Max data size: " << MAX_DATA_SIZE << " bytes (" 
               << (MAX_DATA_SIZE / (1024.0 * 1024.0)) << " MB)" << std::endl;
     
-    if (mode == "both") {
+    if (args.mode == "both") {
         std::cout << "  " << Console::BOLD << "Data integrity verification: ENABLED" << Console::RESET << std::endl;
     }
     std::cout << std::endl;
     
     try {
-        if (mode == "sender") {
+        if (args.mode == "sender") {
             SenderTest();
-        } else if (mode == "receiver") {
+        } else if (args.mode == "receiver") {
             ReceiverTest();
-        } else if (mode == "both") {
+        } else if (args.mode == "both") {
             CombinedTest();
         }
     } catch (const std::exception& e) {

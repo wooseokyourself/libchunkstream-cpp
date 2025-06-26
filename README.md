@@ -208,26 +208,102 @@ std::cout << "Frames dropped: " << receiver.GetDropCount() << std::endl;
 receiver.Flush();
 ```
 
-## Data Integrity Testing
+## Testing and Data Integrity Verification
 
-The library includes a comprehensive test application for data integrity verification:
+The library includes a comprehensive test application for data integrity verification and performance analysis.
+
+### Test Application Usage
 
 ```bash
-# Run integrated sender/receiver test with data verification
+# Display help and usage information
+./chunkstream_example --help
+
+# Run integrated sender/receiver test with data verification (default)
 ./chunkstream_example both
 
-# Run sender only
-./chunkstream_example sender
+# Run with custom port
+./chunkstream_example both --port 8080
 
-# Run receiver only  
-./chunkstream_example receiver
+# Run sender only to specific host and port
+./chunkstream_example sender --host 192.168.1.100 --port 5555
+
+# Run receiver only on specific port
+./chunkstream_example receiver --port 5555
 ```
 
-The test application provides:
+### Command Line Options
+
+| Option | Description | Available Modes | Default |
+|--------|-------------|-----------------|---------|
+| `--host HOST` | Target IP address | sender only | 127.0.0.1 |
+| `--port PORT` | UDP port number | all modes | 56343 |
+| `--help, -h` | Show help message | all modes | - |
+
+### Test Modes
+
+#### 1. Both Mode (Default)
+```bash
+# Local loopback test with data integrity verification
+./chunkstream_example both --port 9090
+```
+- Runs both sender and receiver in same process
+- Automatic data integrity verification
 - Real-time performance statistics
+- Ideal for library testing and benchmarking
+
+#### 2. Sender Mode
+```bash
+# Send to remote receiver
+./chunkstream_example sender --host 192.168.1.100 --port 5555
+```
+- Continuously sends test data frames
+- Performance statistics display
+- Useful for network testing and load generation
+
+#### 3. Receiver Mode
+```bash
+# Receive on specific port
+./chunkstream_example receiver --port 5555
+```
+- Listens for incoming data frames
 - Data integrity verification
-- Packet loss analysis
-- Latency measurements
+- Performance monitoring
+- Ideal for testing receiver performance
+
+### Test Application Features
+
+The test application provides comprehensive analysis:
+
+- **Real-time Statistics**: Live FPS, throughput, and performance metrics
+- **Data Integrity Verification**: Automatic corruption detection and reporting
+- **Packet Loss Analysis**: Drop rate monitoring and statistics
+- **Latency Measurements**: Round-trip time and distribution analysis
+- **Network Performance**: Throughput and efficiency metrics
+
+### Example Test Session
+
+```bash
+# Terminal 1: Start receiver
+./chunkstream_example receiver --port 8080
+
+# Terminal 2: Start sender to remote host
+./chunkstream_example sender --host 192.168.1.100 --port 8080
+
+# Press Enter to stop test and view detailed results
+```
+
+### Network Testing Scenarios
+
+```bash
+# Local performance benchmark
+./chunkstream_example both --port 7777
+
+# Cross-network reliability test
+./chunkstream_example sender --host 10.0.0.50 --port 6666
+
+# High-port testing (avoiding conflicts)
+./chunkstream_example both --port 55555
+```
 
 ## Thread Safety
 
@@ -274,6 +350,18 @@ New-NetFirewallRule -DisplayName "ChunkStream" -Direction Inbound -Protocol UDP 
    - Enable compiler optimizations (-O3)
    - Use Release build configuration
    - Consider network hardware limitations
+
+4. **Connection Issues**
+   - Verify firewall settings
+   - Check port availability with `netstat -an | grep PORT`
+   - Ensure correct IP addresses and routing
+
+### Testing Tips
+
+- Use `both` mode for initial testing and library validation
+- Test with `sender`/`receiver` modes for network-specific scenarios
+- Monitor system resources during high-throughput tests
+- Use different ports to avoid conflicts with existing services
 
 ## License
 This project is licensed under the GNU General Public License v3.0 - see the LICENSE file for details.
