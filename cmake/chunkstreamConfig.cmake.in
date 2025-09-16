@@ -6,7 +6,18 @@ include(CMakeFindDependencyMacro)
 if(WIN32)
     find_dependency(asio CONFIG)
 else()
-    find_dependency(asio)
+    find_path(ASIO_INCLUDE_DIR
+        NAMES asio.hpp
+        PATHS /usr/include /usr/local/include	
+    )
+    if (NOT ASIO_INCLUDE_DIR)
+	message(FATAL_ERROR "Asio headers not found. Please install libasio-dev")
+    endif()
+
+    if (NOT TARGET asio::asio)
+	add_library(asio::asio INTERFACE IMPORTED)
+	target_include_directories(asio::asio INTERFACE ${ASIO_INCLUDE_DIR})
+    endif()
 endif()
 
 # Include the targets
